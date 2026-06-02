@@ -18,7 +18,7 @@ use winit::{
     keyboard::{KeyCode, PhysicalKey},
 };
 
-const VOL_SIZE: u32 = 128;
+const VOL_SIZE: u32 = 64;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]

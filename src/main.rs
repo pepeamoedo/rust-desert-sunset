@@ -1,4 +1,4 @@
-use nubes::run;
+use rust_desert_sunset::run;
 
 fn main() {
     env_logger::init();

@@ -30,7 +30,22 @@ fn random(uv: vec2<f32>, time: f32) -> f32 {
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    // Simple passthrough: fetch the exact color from the render target
-    let final_color = textureSample(t_color, s_color, in.uv).rgb;
-    return vec4<f32>(final_color, 1.0);
+    let px = 1.0 / uniforms.resolution;
+    var color = vec3<f32>(0.0);
+    
+    // Spatial Denoising (3x3 Blur)
+    // Smooths out the high-frequency stochastic noise introduced by volumetric ray jittering
+    color += textureSample(t_color, s_color, in.uv + vec2<f32>(-px.x, -px.y)).rgb * 0.0625;
+    color += textureSample(t_color, s_color, in.uv + vec2<f32>( 0.0, -px.y)).rgb * 0.125;
+    color += textureSample(t_color, s_color, in.uv + vec2<f32>( px.x, -px.y)).rgb * 0.0625;
+    
+    color += textureSample(t_color, s_color, in.uv + vec2<f32>(-px.x,  0.0)).rgb * 0.125;
+    color += textureSample(t_color, s_color, in.uv + vec2<f32>( 0.0,  0.0)).rgb * 0.25;
+    color += textureSample(t_color, s_color, in.uv + vec2<f32>( px.x,  0.0)).rgb * 0.125;
+    
+    color += textureSample(t_color, s_color, in.uv + vec2<f32>(-px.x,  px.y)).rgb * 0.0625;
+    color += textureSample(t_color, s_color, in.uv + vec2<f32>( 0.0,  px.y)).rgb * 0.125;
+    color += textureSample(t_color, s_color, in.uv + vec2<f32>( px.x,  px.y)).rgb * 0.0625;
+
+    return vec4<f32>(color, 1.0);
 }

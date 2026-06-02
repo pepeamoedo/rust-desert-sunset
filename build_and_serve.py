@@ -32,5 +32,18 @@ def main():
     print("\n🚀 Abriendo la aplicación nativa...")
     subprocess.Popen(["open", app_path])
 
+    # 3. Compilación para la Web (WASM)
+    print("\n[2/3] Compilando para la Web usando wasm-pack...")
+    run_command(["wasm-pack", "build", "--target", "web"])
+    print("✅ Compilación Web (WASM) completada con éxito.")
+
+    # 4. Iniciar el servidor local
+    print("\n[3/3] Iniciando el servidor local en http://localhost:8000")
+    print("      Presiona Ctrl+C para detener el servidor.\n")
+    try:
+        subprocess.run(["python3", "-m", "http.server", "8000"], cwd=os.getcwd())
+    except KeyboardInterrupt:
+        print("\nServidor detenido por el usuario.")
+
 if __name__ == "__main__":
     main()

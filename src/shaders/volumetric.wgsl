@@ -390,9 +390,13 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var final_color = bg_color;
     
     if (dstInsideBox > 0.0) {
-        let num_steps = 64; // Optimized from 128
+        let num_steps = 24; // Optimized down from 64 for extreme performance
         let step_size = dstInsideBox / f32(num_steps);
-        var p = ro + rd * dstToBox;
+        
+        // Ray Jittering: Offset the ray start based on pixel coordinates and time.
+        // This converts banding artifacts into high-frequency noise which we denoise later.
+        let jitter = hash3(vec3<f32>(in.clip_position.xy, camera.time.x)).x;
+        var p = ro + rd * (dstToBox + jitter * step_size);
         
         var transmittance = 1.0;
         let absorption = 12.0;
@@ -403,7 +407,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         // Mix two HG phases for strong forward scattering and slight back scattering
         let phase_val = mix(phase_hg(cos_theta, 0.8), phase_hg(cos_theta, -0.2), 0.3);
         
-        let shadow_steps = 4; // Optimized from 6
+        let shadow_steps = 2; // Optimized down from 4
         let shadow_step_size = 0.08;
         
         let wind = vec3<f32>(camera.time.x * 0.5, 0.0, camera.time.x * 0.2);
