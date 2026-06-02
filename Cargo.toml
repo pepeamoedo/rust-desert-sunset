@@ -1,0 +1,40 @@
+[package]
+name = "rust-desert-sunset"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+winit = "0.29"
+wgpu = "0.19"
+glam = "0.25"
+env_logger = "0.11"
+log = "0.4"
+pollster = "0.3"
+cfg-if = "1.0.4"
+bytemuck = { version = "1.25.0", features = ["derive"] }
+rodio = "0.18"
+rand = "0.8"
+getrandom = { version = "0.2", features = ["js"] }
+egui = "0.27.0"
+egui-wgpu = "0.27.0"
+egui-winit = "0.27.0"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
+console_error_panic_hook = "0.1.7"
+console_log = "1.0"
+web-sys = { version = "0.3", features = [
+    "Document",
+    "Window",
+    "Element",
+    "HtmlCanvasElement",
+] }
+wasm-bindgen-futures = "0.4.72"
+
+[package.metadata.bundle]
+name = "Desert Sunset"
+identifier = "com.pepeamoedo.desertsunset"
+icon = ["icon.icns"]
