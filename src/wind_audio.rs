@@ -1,19 +1,23 @@
 use rodio::source::Source;
 use std::time::Duration;
 use rand::Rng;
+use std::sync::Arc;
+use crate::EnvironmentState;
 
 pub struct WindSource {
     time: f32,
     sample_rate: u32,
     prev_val: f32,
+    env_state: Arc<EnvironmentState>,
 }
 
 impl WindSource {
-    pub fn new(sample_rate: u32) -> Self {
+    pub fn new(sample_rate: u32, env_state: Arc<EnvironmentState>) -> Self {
         Self {
             time: 0.0,
             sample_rate,
             prev_val: 0.0,
+            env_state,
         }
     }
 }
@@ -22,7 +26,9 @@ impl Iterator for WindSource {
     type Item = f32;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.time += 1.0 / self.sample_rate as f32;
+        let wind_speed = self.env_state.get_wind_speed();
+        
+        self.time += (1.0 / self.sample_rate as f32) * wind_speed;
         
         // Generate white noise using thread-local fast rng
         let noise: f32 = rand::thread_rng().gen_range(-1.0..1.0);
@@ -34,8 +40,8 @@ impl Iterator for WindSource {
         // Simple One-Pole Low-Pass Filter
         self.prev_val = self.prev_val + cutoff * (noise - self.prev_val);
         
-        // Scale volume based on gust
-        let volume = 0.5 + gust * 0.5;
+        // Scale volume based on gust and wind speed
+        let volume = (0.5 + gust * 0.5) * wind_speed;
         
         Some(self.prev_val * volume * 3.0)
     }

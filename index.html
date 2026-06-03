@@ -29,12 +29,24 @@
     </style>
 </head>
 <body id="wasm-example">
+    <div id="ui" style="position: absolute; top: 20px; left: 20px; z-index: 10; background: rgba(0,0,0,0.5); padding: 15px; border-radius: 8px; font-family: monospace; border: 1px solid rgba(255,255,255,0.2);">
+        <label for="windSlider" style="display: block; margin-bottom: 10px;">Viento: <span id="windValue">1.0</span>x</label>
+        <input type="range" id="windSlider" min="0.0" max="5.0" step="0.1" value="1.0" style="width: 200px;">
+    </div>
     <script type="module">
-        import init from './pkg/rust_desert_sunset.js';
+        import init, { set_wind_intensity } from './pkg/rust_desert_sunset.js';
         
         async function run() {
             try {
                 await init();
+                
+                document.getElementById('windSlider').addEventListener('input', (e) => {
+                    const val = parseFloat(e.target.value);
+                    document.getElementById('windValue').innerText = val.toFixed(1);
+                    if (set_wind_intensity) {
+                        set_wind_intensity(val);
+                    }
+                });
             } catch (error) {
                 console.error("Error initializing WebAssembly module:", error);
                 document.body.innerHTML = `<div style="padding: 20px;">

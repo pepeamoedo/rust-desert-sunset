@@ -3,11 +3,14 @@
 
 export function run(): Promise<void>;
 
+export function set_wind_intensity(intensity: number): void;
+
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly run: () => void;
+    readonly set_wind_intensity: (a: number) => void;
     readonly wasm_bindgen__convert__closures_____invoke__h1b14c92ab86d0db5: (a: number, b: number, c: any) => [number, number];
     readonly wasm_bindgen__convert__closures_____invoke__h9f867f3fe22afe74: (a: number, b: number, c: any, d: any) => void;
     readonly wasm_bindgen__convert__closures_____invoke__h63525195ca186344: (a: number, b: number, c: any) => void;

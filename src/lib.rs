@@ -20,6 +20,38 @@ use winit::{
 
 const VOL_SIZE: u32 = 64;
 
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::Arc;
+
+pub struct EnvironmentState {
+    pub wind_speed: AtomicU32,
+}
+
+impl EnvironmentState {
+    pub fn new(initial: f32) -> Self {
+        Self {
+            wind_speed: AtomicU32::new(initial.to_bits()),
+        }
+    }
+    pub fn get_wind_speed(&self) -> f32 {
+        f32::from_bits(self.wind_speed.load(Ordering::Relaxed))
+    }
+    pub fn set_wind_speed(&self, speed: f32) {
+        self.wind_speed.store(speed.to_bits(), Ordering::Relaxed);
+    }
+}
+
+thread_local! {
+    pub static GLOBAL_ENV_STATE: Arc<EnvironmentState> = Arc::new(EnvironmentState::new(1.0));
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
+pub fn set_wind_intensity(intensity: f32) {
+    GLOBAL_ENV_STATE.with(|state| {
+        state.set_wind_speed(intensity);
+    });
+}
+
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 struct CameraUniform {
@@ -658,7 +690,8 @@ impl<'a> State<'a> {
         // Apply vertical movement (space / shift could be added, but for now we clamp)
         self.pos.y = self.pos.y.clamp(-0.5, 8.5);
         
-        self.camera_uniform.time[0] += 0.016; // Simulate roughly 60fps delta time
+        let current_wind_speed = GLOBAL_ENV_STATE.with(|s| s.get_wind_speed());
+        self.camera_uniform.time[0] += 0.016 * current_wind_speed; // Simulate roughly 60fps delta time
 
         self.camera_uniform.update_view(self.yaw, self.pitch, self.pos);
         self.queue.write_buffer(
@@ -691,7 +724,8 @@ impl<'a> State<'a> {
         if self.audio_stream.is_none() {
             if let Ok((stream, stream_handle)) = OutputStream::try_default() {
                 if let Ok(sink) = Sink::try_new(&stream_handle) {
-                    let source = wind_audio::WindSource::new(44100);
+                    let env_state = GLOBAL_ENV_STATE.with(|s| s.clone());
+                    let source = wind_audio::WindSource::new(44100, env_state);
                     sink.append(source);
                     self.audio_stream = Some((stream, sink));
                 }

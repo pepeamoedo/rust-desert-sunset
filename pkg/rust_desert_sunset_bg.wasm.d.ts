@@ -2,6 +2,7 @@
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
 export const run: () => void;
+export const set_wind_intensity: (a: number) => void;
 export const wasm_bindgen__convert__closures_____invoke__h1b14c92ab86d0db5: (a: number, b: number, c: any) => [number, number];
 export const wasm_bindgen__convert__closures_____invoke__h9f867f3fe22afe74: (a: number, b: number, c: any, d: any) => void;
 export const wasm_bindgen__convert__closures_____invoke__h63525195ca186344: (a: number, b: number, c: any) => void;
