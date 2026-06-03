@@ -7,8 +7,8 @@
     <!-- Trunk will automatically compile and inject the Rust WebAssembly here -->
     
 <script type="module">
-import init, * as bindings from '/rust-desert-sunset/rust-desert-sunset-d5c0b8425f569b16.js';
-const wasm = await init({ module_or_path: '/rust-desert-sunset/rust-desert-sunset-d5c0b8425f569b16_bg.wasm' });
+import init, * as bindings from '/rust-desert-sunset/rust-desert-sunset-7c96854621942499.js';
+const wasm = await init({ module_or_path: '/rust-desert-sunset/rust-desert-sunset-7c96854621942499_bg.wasm' });
 
 
 window.wasmBindings = bindings;
@@ -18,71 +18,22 @@ dispatchEvent(new CustomEvent("TrunkApplicationStarted", {detail: {wasm}}));
 
 </script>
     <style>
-        body {
+        html, body {
             margin: 0;
             padding: 0;
-            background-color: #000;
-            color: #fff;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            overflow: hidden;
-            font-family: sans-serif;
-        }
-        #wasm-example {
             width: 100vw;
             height: 100vh;
+            overflow: hidden;
+            background-color: #000;
         }
         canvas {
             display: block;
             width: 100%;
             height: 100%;
         }
-        #ui {
-            position: absolute; 
-            top: 20px; 
-            left: 20px; 
-            z-index: 10; 
-            background: rgba(0,0,0,0.5); 
-            padding: 15px; 
-            border-radius: 8px; 
-            font-family: monospace; 
-            border: 1px solid rgba(255,255,255,0.2);
-        }
     </style>
-<link rel="modulepreload" href="/rust-desert-sunset/rust-desert-sunset-d5c0b8425f569b16.js" crossorigin="anonymous" integrity="sha384-drRr8AFZyWwLnpO34s+mRYddMDWs3GryXWnrWzTAuain7UM/jEYznWOhstvHjNqG"><link rel="preload" href="/rust-desert-sunset/rust-desert-sunset-d5c0b8425f569b16_bg.wasm" crossorigin="anonymous" integrity="sha384-we8PpeGeWWElI7KDcDC18CsJl5gFiIxBzj7AIHLOeVI7ZRNLQ74MEK3iF0FH88fo" as="fetch" type="application/wasm"></head>
+<link rel="modulepreload" href="/rust-desert-sunset/rust-desert-sunset-7c96854621942499.js" crossorigin="anonymous" integrity="sha384-kn0H+ErgDJUF9YSSs2hOFMXfwZARa+I/G+vKRRMgXTq0zzezbo903Vqc/nGdH0mZ"><link rel="preload" href="/rust-desert-sunset/rust-desert-sunset-7c96854621942499_bg.wasm" crossorigin="anonymous" integrity="sha384-1/tbbir6FMwG1TlFH/z/0a3NcDxmkHgu5JIPAeXNgSnFtI2qy0z5HEyu4SlwEiK9" as="fetch" type="application/wasm"></head>
 <body id="wasm-example">
-    <div id="ui">
-        <label for="windSlider" style="display: block; margin-bottom: 10px;">Viento: <span id="windValue">1.0</span>x</label>
-        <input type="range" id="windSlider" min="0.0" max="5.0" step="0.1" value="1.0" style="width: 200px;">
-        <br><br>
-        <label for="sunSlider" style="display: block; margin-bottom: 10px;">Sol (Hora): <span id="sunValue">0.0</span></label>
-        <input type="range" id="sunSlider" min="0.0" max="1.0" step="0.01" value="0.0" style="width: 200px;">
-        <br><br>
-        <label for="cloudSlider" style="display: block; margin-bottom: 10px;">Densidad de Nubes: <span id="cloudValue">1.0</span></label>
-        <input type="range" id="cloudSlider" min="0.0" max="2.0" step="0.1" value="1.0" style="width: 200px;">
-    </div>
-    <script>
-        // JS Logic para UI interactiva y comunicación con Wasm
-        
-        document.getElementById('windSlider').addEventListener('input', (e) => {
-            const val = parseFloat(e.target.value);
-            document.getElementById('windValue').innerText = val.toFixed(1);
-            if (window.set_wind_intensity_rs) window.set_wind_intensity_rs(val);
-        });
-
-        document.getElementById('sunSlider').addEventListener('input', (e) => {
-            const val = parseFloat(e.target.value);
-            document.getElementById('sunValue').innerText = val.toFixed(2);
-            if (window.set_sun_position_rs) window.set_sun_position_rs(val);
-        });
-
-        document.getElementById('cloudSlider').addEventListener('input', (e) => {
-            const val = parseFloat(e.target.value);
-            document.getElementById('cloudValue').innerText = val.toFixed(1);
-            if (window.set_cloud_density_rs) window.set_cloud_density_rs(val);
-        });
-    </script>
+    <!-- Winit will automatically inject its canvas here if we don't supply one, but it's fine -->
 </body>
 </html>
