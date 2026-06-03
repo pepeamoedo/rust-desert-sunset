@@ -7,8 +7,8 @@
     <!-- Trunk will automatically compile and inject the Rust WebAssembly here -->
     
 <script type="module">
-import init, * as bindings from '/rust-desert-sunset/rust-desert-sunset-5cf4aa84d9892554.js';
-const wasm = await init({ module_or_path: '/rust-desert-sunset/rust-desert-sunset-5cf4aa84d9892554_bg.wasm' });
+import init, * as bindings from '/rust-desert-sunset/rust-desert-sunset-d5c0b8425f569b16.js';
+const wasm = await init({ module_or_path: '/rust-desert-sunset/rust-desert-sunset-d5c0b8425f569b16_bg.wasm' });
 
 
 window.wasmBindings = bindings;
@@ -51,7 +51,7 @@ dispatchEvent(new CustomEvent("TrunkApplicationStarted", {detail: {wasm}}));
             border: 1px solid rgba(255,255,255,0.2);
         }
     </style>
-<link rel="modulepreload" href="/rust-desert-sunset/rust-desert-sunset-5cf4aa84d9892554.js" crossorigin="anonymous" integrity="sha384-drRr8AFZyWwLnpO34s+mRYddMDWs3GryXWnrWzTAuain7UM/jEYznWOhstvHjNqG"><link rel="preload" href="/rust-desert-sunset/rust-desert-sunset-5cf4aa84d9892554_bg.wasm" crossorigin="anonymous" integrity="sha384-OnvYYb3yEDWN3HteTBm57czfF5tXizQvbtcDGAWimbV7g8YW6IYR1EjzQriTaI02" as="fetch" type="application/wasm"></head>
+<link rel="modulepreload" href="/rust-desert-sunset/rust-desert-sunset-d5c0b8425f569b16.js" crossorigin="anonymous" integrity="sha384-drRr8AFZyWwLnpO34s+mRYddMDWs3GryXWnrWzTAuain7UM/jEYznWOhstvHjNqG"><link rel="preload" href="/rust-desert-sunset/rust-desert-sunset-d5c0b8425f569b16_bg.wasm" crossorigin="anonymous" integrity="sha384-we8PpeGeWWElI7KDcDC18CsJl5gFiIxBzj7AIHLOeVI7ZRNLQ74MEK3iF0FH88fo" as="fetch" type="application/wasm"></head>
 <body id="wasm-example">
     <div id="ui">
         <label for="windSlider" style="display: block; margin-bottom: 10px;">Viento: <span id="windValue">1.0</span>x</label>
