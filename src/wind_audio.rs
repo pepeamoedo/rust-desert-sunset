@@ -1,66 +1,101 @@
-use rodio::source::Source;
-use std::time::Duration;
-use rand::Rng;
+#[cfg(target_arch = "wasm32")]
+
+#[cfg(target_arch = "wasm32")]
+use web_sys::{AudioContext, GainNode, BiquadFilterNode};
 use std::sync::Arc;
 use crate::EnvironmentState;
 
-pub struct WindSource {
-    time: f32,
-    sample_rate: u32,
-    prev_val: f32,
+pub struct WindAudioController {
+    #[cfg(target_arch = "wasm32")]
+    ctx: AudioContext,
+    #[cfg(target_arch = "wasm32")]
+    gain: GainNode,
+    #[cfg(target_arch = "wasm32")]
+    filter: BiquadFilterNode,
     env_state: Arc<EnvironmentState>,
+    time: f32,
 }
 
-impl WindSource {
-    pub fn new(sample_rate: u32, env_state: Arc<EnvironmentState>) -> Self {
-        Self {
-            time: 0.0,
-            sample_rate,
-            prev_val: 0.0,
-            env_state,
+impl WindAudioController {
+    pub fn new(env_state: Arc<EnvironmentState>) -> Self {
+        #[cfg(target_arch = "wasm32")]
+        {
+            let ctx = AudioContext::new().unwrap();
+            
+            // Create white noise buffer
+            let sample_rate = ctx.sample_rate() as u32;
+            let buffer_size = sample_rate * 2; // 2 seconds of noise
+            let buffer = ctx.create_buffer(1, buffer_size, sample_rate as f32).unwrap();
+            
+            let mut data = vec![0.0f32; buffer_size as usize];
+            for i in 0..buffer_size as usize {
+                data[i] = rand::random::<f32>() * 2.0 - 1.0;
+            }
+            
+            buffer.copy_to_channel(&mut data, 0).unwrap();
+            
+            // Create source node
+            let source = ctx.create_buffer_source().unwrap();
+            source.set_buffer(Some(&buffer));
+            source.set_loop(true);
+            
+            // Create lowpass filter
+            let filter = ctx.create_biquad_filter().unwrap();
+            filter.set_type(web_sys::BiquadFilterType::Lowpass);
+            filter.frequency().set_value(100.0);
+            
+            // Create gain node for volume control
+            let gain = ctx.create_gain().unwrap();
+            gain.gain().set_value(0.5);
+            
+            // Connect nodes: Source -> Filter -> Gain -> Destination
+            source.connect_with_audio_node(&filter).unwrap();
+            filter.connect_with_audio_node(&gain).unwrap();
+            gain.connect_with_audio_node(&ctx.destination()).unwrap();
+            
+            // Start playing
+            source.start().unwrap();
+
+            Self {
+                ctx,
+                gain,
+                filter,
+                env_state,
+                time: 0.0,
+            }
+        }
+        
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            Self {
+                env_state,
+                time: 0.0,
+            }
         }
     }
-}
 
-impl Iterator for WindSource {
-    type Item = f32;
-
-    fn next(&mut self) -> Option<Self::Item> {
+    pub fn update(&mut self) {
         let wind_speed = self.env_state.get_wind_speed();
+        self.time += 0.016 * wind_speed; // approximate 60fps delta
         
-        self.time += (1.0 / self.sample_rate as f32) * wind_speed;
-        
-        // Generate white noise using thread-local fast rng
-        let noise: f32 = rand::thread_rng().gen_range(-1.0..1.0);
-        
-        // Modulate cutoff frequency with a slow sine wave (wind gusts)
+        // Modulate with slow sine wave (wind gusts)
         let gust = (self.time * 0.4).sin() * 0.5 + 0.5; // 0.0 to 1.0
-        let cutoff = 0.01 + gust * 0.03; // Very low cutoff for bassy rumble
         
-        // Simple One-Pole Low-Pass Filter
-        self.prev_val = self.prev_val + cutoff * (noise - self.prev_val);
+        // Base frequency 50Hz, scales up to 400Hz depending on wind speed and gust
+        let freq = 50.0 + (350.0 * gust * wind_speed);
         
-        // Scale volume based on gust and wind speed
-        let volume = (0.5 + gust * 0.5) * wind_speed;
+        // Volume depends on wind speed and gust
+        let volume = (0.2 + gust * 0.4) * wind_speed;
         
-        Some(self.prev_val * volume * 3.0)
-    }
-}
-
-impl Source for WindSource {
-    fn current_frame_len(&self) -> Option<usize> {
-        None
-    }
-
-    fn channels(&self) -> u16 {
-        1 // Mono
-    }
-
-    fn sample_rate(&self) -> u32 {
-        self.sample_rate
-    }
-
-    fn total_duration(&self) -> Option<Duration> {
-        None // Infinite
+        #[cfg(target_arch = "wasm32")]
+        {
+            self.filter.frequency().set_value(freq);
+            self.gain.gain().set_value(volume);
+            
+            // Resume context if user interacted but it was suspended
+            if self.ctx.state() == web_sys::AudioContextState::Suspended {
+                let _ = self.ctx.resume();
+            }
+        }
     }
 }

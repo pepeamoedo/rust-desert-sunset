@@ -2,7 +2,7 @@
 use wasm_bindgen::prelude::*;
 
 mod wind_audio;
-use rodio::{OutputStream, Sink};
+
 use web_time::Instant;
 use egui::Context as EguiContext;
 use egui_winit::State as EguiState;
@@ -133,7 +133,7 @@ struct State<'a> {
     q_pressed: bool,
     e_pressed: bool,
     last_mouse_pos: (f64, f64),
-    audio_stream: Option<(OutputStream, Sink)>,
+    audio_stream: Option<wind_audio::WindAudioController>,
     egui_ctx: EguiContext,
     egui_state: EguiState,
     egui_renderer: EguiRenderer,
@@ -693,6 +693,10 @@ impl<'a> State<'a> {
         let current_wind_speed = GLOBAL_ENV_STATE.with(|s| s.get_wind_speed());
         self.camera_uniform.time[0] += 0.016 * current_wind_speed; // Simulate roughly 60fps delta time
 
+        if let Some(audio) = &mut self.audio_stream {
+            audio.update();
+        }
+
         self.camera_uniform.update_view(self.yaw, self.pitch, self.pos);
         self.queue.write_buffer(
             &self.camera_buffer,
@@ -722,14 +726,9 @@ impl<'a> State<'a> {
 
         // Initialize audio on first user input (bypasses browser autoplay restrictions in WASM)
         if self.audio_stream.is_none() {
-            if let Ok((stream, stream_handle)) = OutputStream::try_default() {
-                if let Ok(sink) = Sink::try_new(&stream_handle) {
-                    let env_state = GLOBAL_ENV_STATE.with(|s| s.clone());
-                    let source = wind_audio::WindSource::new(44100, env_state);
-                    sink.append(source);
-                    self.audio_stream = Some((stream, sink));
-                }
-            }
+            let env_state = GLOBAL_ENV_STATE.with(|s| s.clone());
+            let controller = wind_audio::WindAudioController::new(env_state);
+            self.audio_stream = Some(controller);
         }
 
         match event {

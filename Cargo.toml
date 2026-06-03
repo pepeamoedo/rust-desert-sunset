@@ -15,7 +15,6 @@ log = "0.4"
 pollster = "0.3"
 cfg-if = "1.0.4"
 bytemuck = { version = "1.25.0", features = ["derive"] }
-rodio = "0.18"
 rand = "0.8"
 getrandom = { version = "0.2", features = ["js"] }
 egui = { version = "0.27.0", default-features = false, features = ["default_fonts"] }
@@ -32,6 +31,18 @@ web-sys = { version = "0.3", features = [
     "Window",
     "Element",
     "HtmlCanvasElement",
+    "HtmlInputElement",
+    "EventTarget",
+    "Event",
+    "AudioContext",
+    "AudioDestinationNode",
+    "AudioBuffer",
+    "AudioBufferSourceNode",
+    "GainNode",
+    "BiquadFilterNode",
+    "BiquadFilterType",
+    "AudioParam",
+    "AudioContextState"
 ] }
 wasm-bindgen-futures = "0.4.72"
 
@@ -39,3 +50,9 @@ wasm-bindgen-futures = "0.4.72"
 name = "Desert Sunset"
 identifier = "com.pepeamoedo.desertsunset"
 icon = ["icon.icns"]
+
+[profile.release]
+opt-level = 3        # Máxima optimización de velocidad (usa "s" o "z" si prefieres menor peso)
+lto = true           # Link Time Optimization (elimina código muerto entre librerías)
+codegen-units = 1    # Compila todo de golpe para maximizar la optimización (más lento al compilar, más rápido al ejecutar)
+panic = "abort"      # Elimina el código de "unwinding" de errores (reduce peso del WASM)
