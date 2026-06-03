@@ -422,32 +422,14 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             // Macro mask: very low frequency trig functions to hide repetition
             let mask = sin(p_wind.x * 0.25) * cos(p_wind.z * 0.15) * 0.5 + 0.5;
             
-            let raw_density = textureSampleLevel(volume_tex, volume_sampler, sample_p, 0.0).r;
+            let volume_data = textureSampleLevel(volume_tex, volume_sampler, sample_p, 0.0);
+            let raw_density = volume_data.r;
+            let light_transmittance = volume_data.g; // Shadow Baking
+
             // Subtract the mask so some areas are artificially clear, breaking the grid
             let density = max(0.0, raw_density - (1.0 - mask) * 0.6);
             
             if (density > 0.01) {
-                // Secondary raycast towards the sun to calculate shadowing
-                var shadow_density = 0.0;
-                var light_p = p + sun_dir * shadow_step_size;
-                for (var j = 0; j < shadow_steps; j++) {
-                    let l_wind = light_p + wind;
-                    let l_warp = vec3<f32>(sin(l_wind.z * 0.7), 0.0, cos(l_wind.x * 0.6)) * 0.6;
-                    let l_sample_p = vec3<f32>((l_wind.x + l_warp.x) * 0.2, (light_p.y - 2.0) / 6.0, (l_wind.z + l_warp.z) * 0.2);
-                    let l_mask = sin(l_wind.x * 0.25) * cos(l_wind.z * 0.15) * 0.5 + 0.5;
-                    
-                    let d = max(0.0, textureSampleLevel(volume_tex, volume_sampler, l_sample_p, 0.0).r - (1.0 - l_mask) * 0.6);
-                    shadow_density += d;
-                    light_p += sun_dir * shadow_step_size;
-                }
-                
-                // Beer-Lambert law for light reaching this point
-                let light_transmittance = exp(-shadow_density * shadow_step_size * absorption);
-                
-                // Light scattered towards the camera
-                let step_transmittance = exp(-density * step_size * absorption);
-                transmittance *= step_transmittance;
-                
                 // Add lighting
                 let bounce_color = vec3<f32>(0.6, 0.2, 0.05); // Deep red/orange sand bounce light for sunset
                 let bounce_intensity = smoothstep(8.0, 2.0, p.y); // Stronger at the bottom of the clouds
@@ -456,6 +438,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                 let ambient_light = vec3<f32>(0.15, 0.1, 0.2) * 0.5 + bounce_light; // Purple twilight ambient fill + bounce
                 let direct_light = sun_color * light_transmittance * phase_val;
                 
+                let step_transmittance = exp(-density * step_size * absorption);
+                transmittance *= step_transmittance;
+
                 let luminance = density * step_size * absorption;
                 scattered_light += (direct_light + ambient_light) * luminance * transmittance;
             }

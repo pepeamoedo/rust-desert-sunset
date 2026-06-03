@@ -28,24 +28,19 @@ fn random(uv: vec2<f32>, time: f32) -> f32 {
     return fract(sin(dot(uv.xy, vec2<f32>(12.9898, 78.233)) + time) * 43758.5453123);
 }
 
+// La textura del fotograma anterior copiada al final del render pass
+@group(0) @binding(3) var t_history: texture_2d<f32>; 
+
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let px = 1.0 / uniforms.resolution;
-    var color = vec3<f32>(0.0);
+    let current_color = textureSample(t_color, s_color, in.uv).rgb;
+    let history_color = textureSample(t_history, s_color, in.uv).rgb;
     
-    // Spatial Denoising (3x3 Blur)
-    // Smooths out the high-frequency stochastic noise introduced by volumetric ray jittering
-    color += textureSample(t_color, s_color, in.uv + vec2<f32>(-px.x, -px.y)).rgb * 0.0625;
-    color += textureSample(t_color, s_color, in.uv + vec2<f32>( 0.0, -px.y)).rgb * 0.125;
-    color += textureSample(t_color, s_color, in.uv + vec2<f32>( px.x, -px.y)).rgb * 0.0625;
+    // TAA (Acumulación Temporal Exponencial)
+    // Conserva el 90% del color histórico y le inyecta solo un 10% del nuevo jittering
+    // Esto difumina el granulado del Ray Jittering en el tiempo y mantiene perfectas
+    // y estáticas las estrellas y dunas al no haber difuminado espacial.
+    let final_color = mix(history_color, current_color, 0.1);
     
-    color += textureSample(t_color, s_color, in.uv + vec2<f32>(-px.x,  0.0)).rgb * 0.125;
-    color += textureSample(t_color, s_color, in.uv + vec2<f32>( 0.0,  0.0)).rgb * 0.25;
-    color += textureSample(t_color, s_color, in.uv + vec2<f32>( px.x,  0.0)).rgb * 0.125;
-    
-    color += textureSample(t_color, s_color, in.uv + vec2<f32>(-px.x,  px.y)).rgb * 0.0625;
-    color += textureSample(t_color, s_color, in.uv + vec2<f32>( 0.0,  px.y)).rgb * 0.125;
-    color += textureSample(t_color, s_color, in.uv + vec2<f32>( px.x,  px.y)).rgb * 0.0625;
-
-    return vec4<f32>(color, 1.0);
+    return vec4<f32>(final_color, 1.0);
 }

@@ -92,6 +92,41 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     // Create harsh contrast for more chaotic, dense gas clumps (lower erosion multiplier = thicker clouds)
     let density = max(0.0, base_shape - (1.0 - detail_noise) * 0.65);
 
-    let color = vec4<f32>(density, density, density, 1.0);
+    // ==========================================
+    // SHADOW BAKING
+    // ==========================================
+    var light_transmittance = 1.0;
+    
+    if (density > 0.01) {
+        let sun_dir = normalize(vec3<f32>(0.9, 0.08, 0.4));
+        var shadow_density = 0.0;
+        let shadow_step_size = 0.05;
+        var shadow_pos = pos + sun_dir * shadow_step_size;
+        
+        for (var i = 0; i < 8; i++) {
+            if (shadow_pos.x > 1.0 || shadow_pos.y > 1.0 || shadow_pos.z > 1.0 ||
+                shadow_pos.x < 0.0 || shadow_pos.y < 0.0 || shadow_pos.z < 0.0) {
+                break;
+            }
+            
+            let s_macro = fbm(shadow_pos * 3.0 + vec3<f32>(12.3, 4.5, 6.7));
+            let s_height = fbm(vec3<f32>(shadow_pos.x * 2.5, 0.0, shadow_pos.z * 2.5) + vec3<f32>(7.1, 0.0, 3.3));
+            
+            let s_max1 = mix(0.1, 0.35, s_height);
+            let s_mask1 = smoothstep(0.0, 0.05, shadow_pos.y) * smoothstep(s_max1, s_max1 - 0.1, shadow_pos.y);
+            let s_max2 = mix(0.7, 1.0, s_height);
+            let s_mask2 = smoothstep(0.55, 0.6, shadow_pos.y) * smoothstep(s_max2, s_max2 - 0.1, shadow_pos.y);
+            
+            let s_base = smoothstep(0.4, 0.8, s_macro) * s_mask1 + smoothstep(0.1, 0.6, s_macro) * s_mask2;
+            let s_detail = fbm(shadow_pos * 12.0);
+            let s_d = max(0.0, s_base - (1.0 - s_detail) * 0.65);
+            
+            shadow_density += s_d;
+            shadow_pos += sun_dir * shadow_step_size;
+        }
+        light_transmittance = exp(-shadow_density * 8.0); // absorption factor
+    }
+
+    let color = vec4<f32>(density, light_transmittance, 0.0, 1.0);
     textureStore(volume, id, color);
 }

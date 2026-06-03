@@ -3,7 +3,7 @@ use wasm_bindgen::prelude::*;
 
 mod wind_audio;
 use rodio::{OutputStream, Sink};
-use std::time::Instant;
+use web_time::Instant;
 use egui::Context as EguiContext;
 use egui_winit::State as EguiState;
 use egui_wgpu::Renderer as EguiRenderer;
@@ -85,6 +85,8 @@ struct State<'a> {
     post_process_uniform_buffer: wgpu::Buffer,
     render_target_texture: wgpu::Texture,
     render_target_view: wgpu::TextureView,
+    history_texture: wgpu::Texture,
+    history_view: wgpu::TextureView,
     screen_sampler: wgpu::Sampler,
     camera_uniform: CameraUniform,
     camera_buffer: wgpu::Buffer,
@@ -143,7 +145,7 @@ impl<'a> State<'a> {
             .unwrap_or(surface_caps.formats[0]);
             
         let config = wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
             format: surface_format,
             width: size.width,
             height: size.height,
@@ -358,6 +360,22 @@ impl<'a> State<'a> {
         });
         let render_target_view = render_target_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
+        let history_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("History Texture"),
+            size: wgpu::Extent3d {
+                width: config.width,
+                height: config.height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: config.format,
+            usage: wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+        let history_view = history_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
         let screen_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
@@ -411,6 +429,16 @@ impl<'a> State<'a> {
                     },
                     count: None,
                 },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        multisampled: false,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    },
+                    count: None,
+                },
             ],
             label: Some("post_process_bind_group_layout"),
         });
@@ -430,6 +458,10 @@ impl<'a> State<'a> {
                 wgpu::BindGroupEntry {
                     binding: 2,
                     resource: post_process_uniform_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::TextureView(&history_view),
                 },
             ],
         });
@@ -499,6 +531,8 @@ impl<'a> State<'a> {
             post_process_uniform_buffer,
             render_target_texture,
             render_target_view,
+            history_texture,
+            history_view,
             screen_sampler,
             camera_uniform,
             camera_buffer,
@@ -547,6 +581,22 @@ impl<'a> State<'a> {
                 view_formats: &[],
             });
             self.render_target_view = self.render_target_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+            self.history_texture = self.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("History Texture"),
+                size: wgpu::Extent3d {
+                    width: new_size.width,
+                    height: new_size.height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: self.config.format,
+                usage: wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            });
+            self.history_view = self.history_texture.create_view(&wgpu::TextureViewDescriptor::default());
             
             // Update uniforms with new resolution
             let post_process_uniforms = PostProcessUniforms {
@@ -577,6 +627,10 @@ impl<'a> State<'a> {
                     wgpu::BindGroupEntry {
                         binding: 2,
                         resource: self.post_process_uniform_buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: wgpu::BindingResource::TextureView(&self.history_view),
                     },
                 ],
             });
@@ -804,6 +858,27 @@ impl<'a> State<'a> {
         for id in &full_output.textures_delta.free {
             self.egui_renderer.free_texture(id);
         }
+
+        // Copy the screen output back into the history texture for TAA
+        encoder.copy_texture_to_texture(
+            wgpu::ImageCopyTexture {
+                texture: &output.texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::ImageCopyTexture {
+                texture: &self.history_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::Extent3d {
+                width: self.config.width,
+                height: self.config.height,
+                depth_or_array_layers: 1,
+            },
+        );
 
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
