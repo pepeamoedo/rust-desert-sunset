@@ -135,6 +135,9 @@ pub struct WebGpuEngine {
     s_pressed: bool,
     a_pressed: bool,
     d_pressed: bool,
+    
+    last_cloud_density: f32,
+    last_sun_position: f32,
     q_pressed: bool,
     e_pressed: bool,
 }
@@ -446,7 +449,7 @@ impl WebGpuEngine {
 
         let audio_stream = Some(WindAudioController::new(GLOBAL_ENV_STATE.with(|s| s.clone())));
 
-        Self {
+        let engine = Self {
             surface,
             device,
             queue,
@@ -480,7 +483,29 @@ impl WebGpuEngine {
             d_pressed: false,
             q_pressed: false,
             e_pressed: false,
+            
+            last_cloud_density: -1.0, // Force first update
+            last_sun_position: -1.0,
+        };
+        
+        // Initial compute pass
+        engine.run_compute_pass();
+        
+        engine
+    }
+
+    pub fn run_compute_pass(&self) {
+        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("Compute Encoder") });
+        {
+            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("Compute Pass"),
+                timestamp_writes: None,
+            });
+            compute_pass.set_pipeline(&self.compute_pipeline);
+            compute_pass.set_bind_group(0, &self.compute_bind_group, &[]);
+            compute_pass.dispatch_workgroups(64 / 8, 64 / 8, 64 / 8);
         }
+        self.queue.submit(std::iter::once(encoder.finish()));
     }
 
     pub fn resize(&mut self, new_width: u32, new_height: u32) {
@@ -578,6 +603,13 @@ impl WebGpuEngine {
             sun_position: current_sun_position,
         };
         self.queue.write_buffer(&self.env_uniform_buffer, 0, bytemuck::cast_slice(&[env_uniform]));
+        
+        if (self.last_cloud_density - current_cloud_density).abs() > 0.001 || 
+           (self.last_sun_position - current_sun_position).abs() > 0.001 {
+            self.last_cloud_density = current_cloud_density;
+            self.last_sun_position = current_sun_position;
+            self.run_compute_pass();
+        }
 
         if let Some(audio) = &mut self.audio_stream {
             audio.update();
@@ -605,15 +637,7 @@ impl WebGpuEngine {
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
         let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("Render Encoder") });
 
-        {
-            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("Compute Pass"),
-                timestamp_writes: None,
-            });
-            compute_pass.set_pipeline(&self.compute_pipeline);
-            compute_pass.set_bind_group(0, &self.compute_bind_group, &[]);
-            compute_pass.dispatch_workgroups(64 / 8, 64 / 8, 64 / 8);
-        }
+        // Compute pass has been moved to run_compute_pass and is only triggered when needed
 
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {

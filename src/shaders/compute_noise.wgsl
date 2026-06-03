@@ -67,9 +67,9 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 
     let pos = vec3<f32>(id) / vec3<f32>(size);
     
-    // Animate the noise by shifting coordinates with time and wind speed
-    let offset = vec3<f32>(env.time * env.wind_speed * 0.5, 0.0, env.time * env.wind_speed * 0.2);
-    let sample_pos = pos + offset;
+    // The noise texture is now baked once and remains static.
+    // The animation (panning) is done entirely in the volumetric.wgsl fragment shader.
+    let sample_pos = pos;
     
     // Macro structure: large scale noise to place cloud clusters
     let macro_noise = fbm(sample_pos * 3.0 + vec3<f32>(12.3, 4.5, 6.7));
