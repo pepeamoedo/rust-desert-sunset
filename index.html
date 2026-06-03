@@ -7,21 +7,24 @@
     <!-- Trunk will automatically compile and inject the Rust WebAssembly here -->
     <link data-trunk rel="rust" href="Cargo.toml" data-bin="rust-desert-sunset" data-wasm-opt="z" />
     <style>
+        @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap');
+
         body {
             margin: 0;
             padding: 0;
             background-color: #000;
-            color: #fff;
+            color: #0ff;
             display: flex;
             justify-content: center;
             align-items: center;
             height: 100vh;
             overflow: hidden;
-            font-family: sans-serif;
+            font-family: 'Share Tech Mono', monospace;
         }
         #wasm-example {
             width: 100vw;
             height: 100vh;
+            position: relative;
         }
         canvas {
             display: block;
@@ -33,25 +36,89 @@
             top: 20px; 
             left: 20px; 
             z-index: 10; 
-            background: rgba(0,0,0,0.5); 
-            padding: 15px; 
-            border-radius: 8px; 
-            font-family: monospace; 
-            border: 1px solid rgba(255,255,255,0.2);
+            background: rgba(10, 20, 30, 0.6);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            padding: 25px; 
+            border-radius: 4px; 
+            border: 1px solid rgba(0, 255, 255, 0.4);
+            box-shadow: 0 0 15px rgba(0, 255, 255, 0.2), inset 0 0 20px rgba(0, 255, 255, 0.1);
+            color: #0ff;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            width: 250px;
+        }
+        #ui::before {
+            content: "SYSTEM_CONTROL_PANEL";
+            display: block;
+            font-size: 10px;
+            color: #f0f;
+            margin-bottom: 15px;
+            border-bottom: 1px solid #f0f;
+            padding-bottom: 5px;
+            box-shadow: 0 5px 5px -5px #f0f;
+        }
+        .control-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: flex;
+            justify-content: space-between;
+            font-size: 13px;
+            margin-bottom: 8px;
+            text-shadow: 0 0 5px rgba(0, 255, 255, 0.5);
+        }
+        span[id$="Value"] {
+            color: #f0f;
+            text-shadow: 0 0 5px rgba(255, 0, 255, 0.5);
+        }
+        input[type=range] {
+            -webkit-appearance: none;
+            width: 100%;
+            background: transparent;
+        }
+        input[type=range]:focus {
+            outline: none;
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 4px;
+            cursor: pointer;
+            background: rgba(0, 255, 255, 0.3);
+            border-radius: 2px;
+            box-shadow: 0 0 5px rgba(0, 255, 255, 0.5);
+        }
+        input[type=range]::-webkit-slider-thumb {
+            height: 16px;
+            width: 8px;
+            border-radius: 2px;
+            background: #f0f;
+            cursor: pointer;
+            -webkit-appearance: none;
+            margin-top: -6px;
+            box-shadow: 0 0 10px #f0f;
+        }
+        input[type=range]:hover::-webkit-slider-thumb {
+            background: #fff;
+            box-shadow: 0 0 15px #fff, 0 0 5px #f0f;
         }
     </style>
 </head>
 <body id="wasm-example">
     <canvas id="wasm-example-canvas"></canvas>
     <div id="ui">
-        <label for="windSlider" style="display: block; margin-bottom: 10px;">Viento: <span id="windValue">1.0</span>x</label>
-        <input type="range" id="windSlider" min="0.0" max="5.0" step="0.1" value="1.0" style="width: 200px;">
-        <br><br>
-        <label for="sunSlider" style="display: block; margin-bottom: 10px;">Sol (Hora): <span id="sunValue">0.0</span></label>
-        <input type="range" id="sunSlider" min="0.0" max="1.0" step="0.01" value="0.0" style="width: 200px;">
-        <br><br>
-        <label for="cloudSlider" style="display: block; margin-bottom: 10px;">Densidad de Nubes: <span id="cloudValue">1.0</span></label>
-        <input type="range" id="cloudSlider" min="0.0" max="2.0" step="0.1" value="1.0" style="width: 200px;">
+        <div class="control-group">
+            <label for="windSlider"><span>Viento</span> <span id="windValue">1.0</span></label>
+            <input type="range" id="windSlider" min="0.0" max="5.0" step="0.1" value="1.0">
+        </div>
+        <div class="control-group">
+            <label for="sunSlider"><span>Sol (Hora)</span> <span id="sunValue">0.0</span></label>
+            <input type="range" id="sunSlider" min="0.0" max="1.0" step="0.01" value="0.0">
+        </div>
+        <div class="control-group" style="margin-bottom: 0;">
+            <label for="cloudSlider"><span>Densidad</span> <span id="cloudValue">1.0</span></label>
+            <input type="range" id="cloudSlider" min="0.0" max="2.0" step="0.1" value="1.0">
+        </div>
     </div>
     <script>
         // JS Logic para UI interactiva y comunicación con Wasm
