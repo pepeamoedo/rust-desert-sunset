@@ -2,7 +2,7 @@ use std::sync::{Arc, atomic::{AtomicU32, Ordering}};
 use wgpu::util::DeviceExt;
 use winit::{
     event::*,
-    event_loop::{EventLoop, ControlFlow},
+    event_loop::EventLoop,
     window::WindowBuilder,
     keyboard::{KeyCode, PhysicalKey},
 };
@@ -425,7 +425,7 @@ impl<'a> State<'a> {
         );
         let egui_renderer = egui_wgpu::Renderer::new(&device, config.format, None, 1);
 
-        let mut state = Self {
+        let state = Self {
             surface,
             device,
             queue,
