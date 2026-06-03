@@ -14,6 +14,14 @@ struct CameraUniform {
 };
 @group(0) @binding(2) var<uniform> camera: CameraUniform;
 
+struct EnvironmentUniform {
+    time: f32,
+    wind_speed: f32,
+    cloud_density: f32,
+    sun_position: f32,
+};
+@group(0) @binding(3) var<uniform> env: EnvironmentUniform;
+
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
     @location(0) uv: vec2<f32>,
@@ -187,13 +195,24 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     wuv *= 1.0 + 0.15 * dot(uv, uv); 
     let rd = normalize(camera.right * wuv.x * 1.4 + camera.up * -wuv.y * 1.4 + camera.view_dir);
     
-    // Light setup: Sunset
-    let sun_dir = normalize(vec3<f32>(0.9, 0.08, 0.4)); // Sun very low on the horizon
-    let sun_color = vec3<f32>(1.0, 0.4, 0.1) * 8.0; // Intense orange/red radiant sun
+    // Light setup: Sun Position
+    let sun_angle = mix(0.08, 1.57, clamp(env.sun_position, 0.0, 1.0)); // 0.08 is sunset, 1.57 is noon
+    let sun_dir = normalize(vec3<f32>(0.9, sin(sun_angle), 0.4 * cos(sun_angle)));
     
-    // Sunset desert sky palette
-    let sky_color_bottom = vec3<f32>(0.9, 0.25, 0.1); // Fiery red/orange horizon
-    let sky_color_top = vec3<f32>(0.15, 0.1, 0.25);    // Dark purple twilight above
+    // Sun Color transitions from red/orange (sunset) to white (noon)
+    let sunset_sun_color = vec3<f32>(1.0, 0.4, 0.1) * 8.0;
+    let noon_sun_color = vec3<f32>(1.0, 0.95, 0.9) * 12.0;
+    let sun_color = mix(sunset_sun_color, noon_sun_color, env.sun_position);
+    
+    // Sky color palette based on sun position
+    let sunset_sky_bottom = vec3<f32>(0.9, 0.25, 0.1);
+    let sunset_sky_top = vec3<f32>(0.15, 0.1, 0.25);
+    
+    let noon_sky_bottom = vec3<f32>(0.6, 0.8, 1.0);
+    let noon_sky_top = vec3<f32>(0.15, 0.4, 0.8);
+    
+    let sky_color_bottom = mix(sunset_sky_bottom, noon_sky_bottom, env.sun_position);
+    let sky_color_top = mix(sunset_sky_top, noon_sky_top, env.sun_position);
     
     // Background sky gradient
     let sky_bg = mix(sky_color_bottom, sky_color_top, max(0.0, rd.y));
@@ -237,18 +256,16 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         // Add random color variation (blueish to reddish)
         let star_color = mix(vec3<f32>(0.7, 0.9, 1.0), vec3<f32>(1.0, 0.8, 0.6), star_rand.z);
         
-        // Fade stars near the bright horizon
-        let star_fade = smoothstep(0.1, 0.5, sky_rd.y) * (1.0 - sun_dot);
+        // Fade stars near the bright horizon or during the day
+        let star_fade = smoothstep(0.1, 0.5, sky_rd.y) * (1.0 - sun_dot) * (1.0 - env.sun_position);
         let stars = star_color * star_intensity * 4.0 * star_fade;
         
-        // Venus (El lucero del alba/atardecer)
-        // Placed high up, to the left of the sun
+        // Venus (El lucero del alba/atardecer) - Fades during the day
         let venus_dir = normalize(vec3<f32>(0.6, 0.45, 0.8));
         let venus_dot = dot(sky_rd, venus_dir);
-        // A sharp core and a soft glow
         let venus_core = smoothstep(0.99995, 1.0, venus_dot) * 10.0;
         let venus_glow = pow(max(0.0, venus_dot), 8000.0) * 2.0;
-        let venus = vec3<f32>(1.0, 0.95, 0.8) * (venus_core + venus_glow);
+        let venus = vec3<f32>(1.0, 0.95, 0.8) * (venus_core + venus_glow) * (1.0 - env.sun_position);
         
         // Moon (Waning crescent / Luna menguante)
         // Placed somewhat opposite to the sun
@@ -272,7 +289,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let earthshine = moon_base * 0.08; 
         
         let moon_color = vec3<f32>(0.85, 0.9, 1.0);
-        let moon = moon_color * (moon_crescent + earthshine);
+        let moon = moon_color * (moon_crescent + earthshine) * (1.0 - env.sun_position * 0.5);
         
         sky_color += stars + venus + moon;
     }
@@ -395,7 +412,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         
         // Ray Jittering: Offset the ray start based on pixel coordinates and time.
         // This converts banding artifacts into high-frequency noise which we denoise later.
-        let jitter = hash3(vec3<f32>(in.clip_position.xy, camera.time.x)).x;
+        let jitter = hash3(vec3<f32>(in.clip_position.xy, env.time)).x;
         var p = ro + rd * (dstToBox + jitter * step_size);
         
         var transmittance = 1.0;
@@ -410,7 +427,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let shadow_steps = 2; // Optimized down from 4
         let shadow_step_size = 0.08;
         
-        let wind = vec3<f32>(camera.time.x * 0.5, 0.0, camera.time.x * 0.2);
+        let wind = vec3<f32>(env.time * env.wind_speed * 0.5, 0.0, env.time * env.wind_speed * 0.2);
         
         for (var i = 0; i < num_steps; i++) {
             let p_wind = p + wind;
@@ -427,15 +444,21 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             let light_transmittance = volume_data.g; // Shadow Baking
 
             // Subtract the mask so some areas are artificially clear, breaking the grid
-            let density = max(0.0, raw_density - (1.0 - mask) * 0.6);
+            let density = max(0.0, raw_density - (1.0 - mask) * 0.6) * env.cloud_density;
             
             if (density > 0.01) {
                 // Add lighting
-                let bounce_color = vec3<f32>(0.6, 0.2, 0.05); // Deep red/orange sand bounce light for sunset
+                let sunset_bounce = vec3<f32>(0.6, 0.2, 0.05); // Deep red/orange sand bounce light for sunset
+                let noon_bounce = vec3<f32>(0.2, 0.3, 0.1); 
+                let bounce_color = mix(sunset_bounce, noon_bounce, env.sun_position);
+                
                 let bounce_intensity = smoothstep(8.0, 2.0, p.y); // Stronger at the bottom of the clouds
                 let bounce_light = bounce_color * bounce_intensity * 0.3;
                 
-                let ambient_light = vec3<f32>(0.15, 0.1, 0.2) * 0.5 + bounce_light; // Purple twilight ambient fill + bounce
+                let sunset_ambient = vec3<f32>(0.15, 0.1, 0.2);
+                let noon_ambient = vec3<f32>(0.4, 0.5, 0.6);
+                let ambient_base = mix(sunset_ambient, noon_ambient, env.sun_position);
+                let ambient_light = ambient_base * 0.5 + bounce_light; // Twilight ambient fill + bounce
                 let direct_light = sun_color * light_transmittance * phase_val;
                 
                 let step_transmittance = exp(-density * step_size * absorption);

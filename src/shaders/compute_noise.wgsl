@@ -1,5 +1,12 @@
 @group(0) @binding(0) var volume: texture_storage_3d<rgba8unorm, write>;
 
+struct EnvironmentUniform {
+    time: f32,
+    wind_speed: f32,
+    cloud_density: f32,
+    sun_position: f32,
+};
+@group(0) @binding(1) var<uniform> env: EnvironmentUniform;
 // Simple hash function for noise
 fn hash3(p: vec3<f32>) -> vec3<f32> {
     var q = vec3<f32>(
@@ -60,8 +67,12 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 
     let pos = vec3<f32>(id) / vec3<f32>(size);
     
+    // Animate the noise by shifting coordinates with time and wind speed
+    let offset = vec3<f32>(env.time * env.wind_speed * 0.5, 0.0, env.time * env.wind_speed * 0.2);
+    let sample_pos = pos + offset;
+    
     // Macro structure: large scale noise to place cloud clusters
-    let macro_noise = fbm(pos * 3.0 + vec3<f32>(12.3, 4.5, 6.7));
+    let macro_noise = fbm(sample_pos * 3.0 + vec3<f32>(12.3, 4.5, 6.7));
     
     // Generate a varying height limit for clouds using 2D noise
     let height_noise = fbm(vec3<f32>(pos.x * 2.5, 0.0, pos.z * 2.5) + vec3<f32>(7.1, 0.0, 3.3));
@@ -87,10 +98,10 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     let base_shape = base_shape_1 + base_shape_2;
 
     // High frequency noise for the fluffy details and erosion
-    let detail_noise = fbm(pos * 12.0);
+    let detail_noise = fbm(sample_pos * 12.0);
     
     // Create harsh contrast for more chaotic, dense gas clumps (lower erosion multiplier = thicker clouds)
-    let density = max(0.0, base_shape - (1.0 - detail_noise) * 0.65);
+    let density = max(0.0, base_shape - (1.0 - detail_noise) * 0.65) * env.cloud_density;
 
     // ==========================================
     // SHADOW BAKING
@@ -98,7 +109,11 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     var light_transmittance = 1.0;
     
     if (density > 0.01) {
-        let sun_dir = normalize(vec3<f32>(0.9, 0.08, 0.4));
+        // Calculate sun direction dynamically
+        // Pos 0.0 = sunset, pos 1.0 = noon
+        let sun_angle = mix(0.08, 1.57, clamp(env.sun_position, 0.0, 1.0)); // 0.08 is near horizon, 1.57 is zenith
+        let sun_dir = normalize(vec3<f32>(0.9, sin(sun_angle), 0.4 * cos(sun_angle)));
+        
         var shadow_density = 0.0;
         let shadow_step_size = 0.05;
         var shadow_pos = pos + sun_dir * shadow_step_size;

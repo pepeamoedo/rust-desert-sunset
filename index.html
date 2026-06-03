@@ -45,10 +45,33 @@
     <div id="ui">
         <label for="windSlider" style="display: block; margin-bottom: 10px;">Viento: <span id="windValue">1.0</span>x</label>
         <input type="range" id="windSlider" min="0.0" max="5.0" step="0.1" value="1.0" style="width: 200px;">
+        <br><br>
+        <label for="sunSlider" style="display: block; margin-bottom: 10px;">Sol (Hora): <span id="sunValue">0.0</span></label>
+        <input type="range" id="sunSlider" min="0.0" max="1.0" step="0.01" value="0.0" style="width: 200px;">
+        <br><br>
+        <label for="cloudSlider" style="display: block; margin-bottom: 10px;">Densidad de Nubes: <span id="cloudValue">1.0</span></label>
+        <input type="range" id="cloudSlider" min="0.0" max="2.0" step="0.1" value="1.0" style="width: 200px;">
     </div>
-    <!-- 
-        Trunk executes our main.rs, which will attach the event listeners 
-        using web-sys directly from Rust to keep the architecture clean.
-    -->
+    <script>
+        // JS Logic para UI interactiva y comunicación con Wasm
+        
+        document.getElementById('windSlider').addEventListener('input', (e) => {
+            const val = parseFloat(e.target.value);
+            document.getElementById('windValue').innerText = val.toFixed(1);
+            if (window.set_wind_intensity_rs) window.set_wind_intensity_rs(val);
+        });
+
+        document.getElementById('sunSlider').addEventListener('input', (e) => {
+            const val = parseFloat(e.target.value);
+            document.getElementById('sunValue').innerText = val.toFixed(2);
+            if (window.set_sun_position_rs) window.set_sun_position_rs(val);
+        });
+
+        document.getElementById('cloudSlider').addEventListener('input', (e) => {
+            const val = parseFloat(e.target.value);
+            document.getElementById('cloudValue').innerText = val.toFixed(1);
+            if (window.set_cloud_density_rs) window.set_cloud_density_rs(val);
+        });
+    </script>
 </body>
 </html>

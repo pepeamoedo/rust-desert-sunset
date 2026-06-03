@@ -33,14 +33,48 @@ fn random(uv: vec2<f32>, time: f32) -> f32 {
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let current_color = textureSample(t_color, s_color, in.uv).rgb;
+    let current_raw = textureSample(t_color, s_color, in.uv).rgb;
     let history_color = textureSample(t_history, s_color, in.uv).rgb;
     
-    // TAA (Acumulación Temporal Exponencial)
-    // Conserva el 90% del color histórico y le inyecta solo un 10% del nuevo jittering
-    // Esto difumina el granulado del Ray Jittering en el tiempo y mantiene perfectas
-    // y estáticas las estrellas y dunas al no haber difuminado espacial.
-    let final_color = mix(history_color, current_color, 0.1);
+    // --- Light Bloom ---
+    var bloom = vec3<f32>(0.0);
+    let bloom_threshold = 0.8;
+    
+    // Simple 5-tap cross blur for bloom on the CURRENT frame
+    let texel_size = vec2<f32>(1.0 / uniforms.resolution.x, 1.0 / uniforms.resolution.y);
+    let offsets = array<vec2<f32>, 5>(
+        vec2<f32>(0.0, 0.0),
+        vec2<f32>(-1.5, 0.0) * texel_size,
+        vec2<f32>(1.5, 0.0) * texel_size,
+        vec2<f32>(0.0, -1.5) * texel_size,
+        vec2<f32>(0.0, 1.5) * texel_size
+    );
+    
+    for (var i = 0; i < 5; i++) {
+        let sample_uv = in.uv + offsets[i];
+        let sample_col = textureSample(t_color, s_color, sample_uv).rgb;
+        let luminance = dot(sample_col, vec3<f32>(0.299, 0.587, 0.114));
+        if (luminance > bloom_threshold) {
+            bloom += sample_col * (luminance - bloom_threshold) * 0.2;
+        }
+    }
+    
+    var processed_color = current_raw + bloom;
+    
+    // --- Color Grading (Etalonaje) ---
+    // S-Curve Contrast
+    let contrast = 1.1;
+    processed_color = processed_color - 0.5;
+    processed_color = processed_color * contrast + 0.5;
+    processed_color = clamp(processed_color, vec3<f32>(0.0), vec3<f32>(1.0));
+    
+    // Warm Tint (Cinematic Sunset)
+    let warm_tint = vec3<f32>(1.05, 0.98, 0.92); 
+    processed_color *= warm_tint;
+    
+    // --- TAA (Acumulación Temporal Exponencial) ---
+    // Mezclar el frame actual (ya procesado) con el historial
+    let final_color = mix(history_color, processed_color, 0.1);
     
     return vec4<f32>(final_color, 1.0);
 }

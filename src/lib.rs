@@ -1,6 +1,7 @@
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
-
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::JsCast;
 mod wind_audio;
 
 use web_time::Instant;
@@ -25,12 +26,16 @@ use std::sync::Arc;
 
 pub struct EnvironmentState {
     pub wind_speed: AtomicU32,
+    pub cloud_density: AtomicU32,
+    pub sun_position: AtomicU32,
 }
 
 impl EnvironmentState {
-    pub fn new(initial: f32) -> Self {
+    pub fn new(initial_wind: f32) -> Self {
         Self {
-            wind_speed: AtomicU32::new(initial.to_bits()),
+            wind_speed: AtomicU32::new(initial_wind.to_bits()),
+            cloud_density: AtomicU32::new(1.0f32.to_bits()),
+            sun_position: AtomicU32::new(0.0f32.to_bits()), // 0.0 is sunset
         }
     }
     pub fn get_wind_speed(&self) -> f32 {
@@ -38,6 +43,18 @@ impl EnvironmentState {
     }
     pub fn set_wind_speed(&self, speed: f32) {
         self.wind_speed.store(speed.to_bits(), Ordering::Relaxed);
+    }
+    pub fn get_cloud_density(&self) -> f32 {
+        f32::from_bits(self.cloud_density.load(Ordering::Relaxed))
+    }
+    pub fn set_cloud_density(&self, density: f32) {
+        self.cloud_density.store(density.to_bits(), Ordering::Relaxed);
+    }
+    pub fn get_sun_position(&self) -> f32 {
+        f32::from_bits(self.sun_position.load(Ordering::Relaxed))
+    }
+    pub fn set_sun_position(&self, pos: f32) {
+        self.sun_position.store(pos.to_bits(), Ordering::Relaxed);
     }
 }
 
@@ -50,6 +67,29 @@ pub fn set_wind_intensity(intensity: f32) {
     GLOBAL_ENV_STATE.with(|state| {
         state.set_wind_speed(intensity);
     });
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
+pub fn set_cloud_density(density: f32) {
+    GLOBAL_ENV_STATE.with(|state| {
+        state.set_cloud_density(density);
+    });
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
+pub fn set_sun_position(pos: f32) {
+    GLOBAL_ENV_STATE.with(|state| {
+        state.set_sun_position(pos);
+    });
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Pod, Zeroable)]
+struct EnvironmentUniform {
+    time: f32,
+    wind_speed: f32,
+    cloud_density: f32,
+    sun_position: f32,
 }
 
 #[repr(C)]
@@ -138,6 +178,9 @@ struct State<'a> {
     egui_state: EguiState,
     egui_renderer: EguiRenderer,
     gpu_name: String,
+    compute_pipeline: wgpu::ComputePipeline,
+    compute_bind_group: wgpu::BindGroup,
+    env_uniform_buffer: wgpu::Buffer,
     last_frame_time: Instant,
     fps_history: Vec<f32>,
     show_perf_panel: bool,
@@ -213,16 +256,28 @@ impl<'a> State<'a> {
         });
 
         let compute_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::COMPUTE,
-                ty: wgpu::BindingType::StorageTexture {
-                    access: wgpu::StorageTextureAccess::WriteOnly,
-                    format: wgpu::TextureFormat::Rgba8Unorm,
-                    view_dimension: wgpu::TextureViewDimension::D3,
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::StorageTexture {
+                        access: wgpu::StorageTextureAccess::WriteOnly,
+                        format: wgpu::TextureFormat::Rgba8Unorm,
+                        view_dimension: wgpu::TextureViewDimension::D3,
+                    },
+                    count: None,
                 },
-                count: None,
-            }],
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }
+            ],
             label: Some("compute_bind_group_layout"),
         });
 
@@ -239,26 +294,35 @@ impl<'a> State<'a> {
             entry_point: "main",
         });
 
+        let env_uniform = EnvironmentUniform {
+            time: 0.0,
+            wind_speed: 1.0,
+            cloud_density: 1.0,
+            sun_position: 0.0,
+        };
+        
+        let env_uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Environment Uniform Buffer"),
+            contents: bytemuck::cast_slice(&[env_uniform]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
         let compute_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Compute Bind Group"),
             layout: &compute_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::TextureView(&volume_view),
-            }],
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&volume_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: env_uniform_buffer.as_entire_binding(),
+                },
+            ],
         });
 
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("Compute Encoder") });
-        {
-            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("Compute Pass"),
-                timestamp_writes: None,
-            });
-            compute_pass.set_pipeline(&compute_pipeline);
-            compute_pass.set_bind_group(0, &compute_bind_group, &[]);
-            compute_pass.dispatch_workgroups(VOL_SIZE / 4, VOL_SIZE / 4, VOL_SIZE / 4);
-        }
-        queue.submit(std::iter::once(encoder.finish()));
+
 
         let mut camera_uniform = CameraUniform::new();
         camera_uniform.update_view(-1.57, 0.2, glam::Vec3::new(0.0, 1.5, 0.0));
@@ -304,6 +368,16 @@ impl<'a> State<'a> {
                 },
                 wgpu::BindGroupLayoutEntry {
                     binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
@@ -372,6 +446,10 @@ impl<'a> State<'a> {
                 wgpu::BindGroupEntry {
                     binding: 2,
                     resource: camera_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: env_uniform_buffer.as_entire_binding(),
                 },
             ],
         });
@@ -584,6 +662,9 @@ impl<'a> State<'a> {
             egui_state,
             egui_renderer,
             gpu_name,
+            compute_pipeline,
+            compute_bind_group,
+            env_uniform_buffer,
             last_frame_time: Instant::now(),
             fps_history: Vec::new(),
             show_perf_panel: false,
@@ -691,7 +772,17 @@ impl<'a> State<'a> {
         self.pos.y = self.pos.y.clamp(-0.5, 8.5);
         
         let current_wind_speed = GLOBAL_ENV_STATE.with(|s| s.get_wind_speed());
+        let current_cloud_density = GLOBAL_ENV_STATE.with(|s| s.get_cloud_density());
+        let current_sun_position = GLOBAL_ENV_STATE.with(|s| s.get_sun_position());
         self.camera_uniform.time[0] += 0.016 * current_wind_speed; // Simulate roughly 60fps delta time
+
+        let env_uniform = EnvironmentUniform {
+            time: self.camera_uniform.time[0],
+            wind_speed: current_wind_speed,
+            cloud_density: current_cloud_density,
+            sun_position: current_sun_position,
+        };
+        self.queue.write_buffer(&self.env_uniform_buffer, 0, bytemuck::cast_slice(&[env_uniform]));
 
         if let Some(audio) = &mut self.audio_stream {
             audio.update();
@@ -840,6 +931,17 @@ impl<'a> State<'a> {
             &screen_descriptor,
         );
 
+        // Pass 0: Compute 3D Noise Texture
+        {
+            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("Compute Pass"),
+                timestamp_writes: None,
+            });
+            compute_pass.set_pipeline(&self.compute_pipeline);
+            compute_pass.set_bind_group(0, &self.compute_bind_group, &[]);
+            compute_pass.dispatch_workgroups(VOL_SIZE / 4, VOL_SIZE / 4, VOL_SIZE / 4);
+        }
+
         // Pass 1: Render scene to the render target texture
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -946,6 +1048,19 @@ pub async fn run() {
                 Some(())
             })
             .expect("Couldn't append canvas to document body.");
+
+        let window = web_sys::window().unwrap();
+        let closure_wind = wasm_bindgen::closure::Closure::wrap(Box::new(|val: f32| set_wind_intensity(val)) as Box<dyn FnMut(f32)>);
+        js_sys::Reflect::set(&window, &wasm_bindgen::JsValue::from_str("set_wind_intensity_rs"), closure_wind.as_ref().unchecked_ref()).unwrap();
+        closure_wind.forget();
+        
+        let closure_density = wasm_bindgen::closure::Closure::wrap(Box::new(|val: f32| set_cloud_density(val)) as Box<dyn FnMut(f32)>);
+        js_sys::Reflect::set(&window, &wasm_bindgen::JsValue::from_str("set_cloud_density_rs"), closure_density.as_ref().unchecked_ref()).unwrap();
+        closure_density.forget();
+
+        let closure_sun = wasm_bindgen::closure::Closure::wrap(Box::new(|val: f32| set_sun_position(val)) as Box<dyn FnMut(f32)>);
+        js_sys::Reflect::set(&window, &wasm_bindgen::JsValue::from_str("set_sun_position_rs"), closure_sun.as_ref().unchecked_ref()).unwrap();
+        closure_sun.forget();
     }
 
     let mut state = State::new(&window).await;
