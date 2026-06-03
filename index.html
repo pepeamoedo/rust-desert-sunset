@@ -42,6 +42,7 @@
     </style>
 </head>
 <body id="wasm-example">
+    <canvas id="wasm-example-canvas"></canvas>
     <div id="ui">
         <label for="windSlider" style="display: block; margin-bottom: 10px;">Viento: <span id="windValue">1.0</span>x</label>
         <input type="range" id="windSlider" min="0.0" max="5.0" step="0.1" value="1.0" style="width: 200px;">
@@ -54,6 +55,64 @@
     </div>
     <script>
         // JS Logic para UI interactiva y comunicación con Wasm
+        let engine = null;
+        let lastTime = 0;
+        let isPointerLocked = false;
+        
+        window.addEventListener("TrunkApplicationStarted", async (e) => {
+            console.log("Trunk WebAssembly loaded!");
+            const { WebGpuEngine, set_wind_intensity_rs, set_sun_position_rs, set_cloud_density_rs } = window.wasmBindings;
+            
+            // Re-bind UI functions now that Wasm is loaded
+            window.set_wind_intensity_rs = set_wind_intensity_rs;
+            window.set_sun_position_rs = set_sun_position_rs;
+            window.set_cloud_density_rs = set_cloud_density_rs;
+            
+            engine = await WebGpuEngine.new("wasm-example-canvas");
+            
+            // Set up resize handler
+            const canvas = document.getElementById("wasm-example-canvas");
+            window.addEventListener("resize", () => {
+                engine.resize(canvas.clientWidth, canvas.clientHeight);
+            });
+            
+            // Set up keyboard handler
+            window.addEventListener("keydown", (e) => {
+                engine.set_key_state(e.key, true);
+            });
+            window.addEventListener("keyup", (e) => {
+                engine.set_key_state(e.key, false);
+            });
+            
+            // Set up mouse look
+            canvas.addEventListener("click", () => {
+                canvas.requestPointerLock();
+            });
+            
+            document.addEventListener("pointerlockchange", () => {
+                isPointerLocked = document.pointerLockElement === canvas;
+            });
+            
+            document.addEventListener("mousemove", (e) => {
+                if (isPointerLocked) {
+                    engine.handle_mouse_move(e.movementX, e.movementY);
+                }
+            });
+
+            // Start the render loop
+            requestAnimationFrame(renderLoop);
+        });
+        
+        function renderLoop(time) {
+            if (!lastTime) lastTime = time;
+            const dt = (time - lastTime) / 1000.0;
+            lastTime = time;
+            
+            if (engine) {
+                engine.render_frame(dt);
+            }
+            requestAnimationFrame(renderLoop);
+        }
         
         document.getElementById('windSlider').addEventListener('input', (e) => {
             const val = parseFloat(e.target.value);
