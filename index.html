@@ -7,197 +7,22 @@
     <!-- Trunk will automatically compile and inject the Rust WebAssembly here -->
     <link data-trunk rel="rust" href="Cargo.toml" data-bin="rust-desert-sunset" data-wasm-opt="z" />
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap');
-
-        body {
+        html, body {
             margin: 0;
             padding: 0;
-            background-color: #000;
-            color: #0ff;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            overflow: hidden;
-            font-family: 'Share Tech Mono', monospace;
-        }
-        #wasm-example {
             width: 100vw;
             height: 100vh;
-            position: relative;
+            overflow: hidden;
+            background-color: #000;
         }
         canvas {
             display: block;
             width: 100%;
             height: 100%;
         }
-        #ui {
-            position: absolute; 
-            top: 20px; 
-            left: 20px; 
-            z-index: 10; 
-            background: rgba(10, 20, 30, 0.6);
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
-            padding: 25px; 
-            border-radius: 4px; 
-            border: 1px solid rgba(0, 255, 255, 0.4);
-            box-shadow: 0 0 15px rgba(0, 255, 255, 0.2), inset 0 0 20px rgba(0, 255, 255, 0.1);
-            color: #0ff;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            width: 250px;
-        }
-        #ui::before {
-            content: "SYSTEM_CONTROL_PANEL";
-            display: block;
-            font-size: 10px;
-            color: #f0f;
-            margin-bottom: 15px;
-            border-bottom: 1px solid #f0f;
-            padding-bottom: 5px;
-            box-shadow: 0 5px 5px -5px #f0f;
-        }
-        .control-group {
-            margin-bottom: 20px;
-        }
-        label {
-            display: flex;
-            justify-content: space-between;
-            font-size: 13px;
-            margin-bottom: 8px;
-            text-shadow: 0 0 5px rgba(0, 255, 255, 0.5);
-        }
-        span[id$="Value"] {
-            color: #f0f;
-            text-shadow: 0 0 5px rgba(255, 0, 255, 0.5);
-        }
-        input[type=range] {
-            -webkit-appearance: none;
-            width: 100%;
-            background: transparent;
-        }
-        input[type=range]:focus {
-            outline: none;
-        }
-        input[type=range]::-webkit-slider-runnable-track {
-            width: 100%;
-            height: 4px;
-            cursor: pointer;
-            background: rgba(0, 255, 255, 0.3);
-            border-radius: 2px;
-            box-shadow: 0 0 5px rgba(0, 255, 255, 0.5);
-        }
-        input[type=range]::-webkit-slider-thumb {
-            height: 16px;
-            width: 8px;
-            border-radius: 2px;
-            background: #f0f;
-            cursor: pointer;
-            -webkit-appearance: none;
-            margin-top: -6px;
-            box-shadow: 0 0 10px #f0f;
-        }
-        input[type=range]:hover::-webkit-slider-thumb {
-            background: #fff;
-            box-shadow: 0 0 15px #fff, 0 0 5px #f0f;
-        }
     </style>
 </head>
 <body id="wasm-example">
-    <canvas id="wasm-example-canvas"></canvas>
-    <div id="ui">
-        <div class="control-group">
-            <label for="windSlider"><span>Viento</span> <span id="windValue">1.0</span></label>
-            <input type="range" id="windSlider" min="0.0" max="5.0" step="0.1" value="1.0">
-        </div>
-        <div class="control-group">
-            <label for="sunSlider"><span>Sol (Hora)</span> <span id="sunValue">0.0</span></label>
-            <input type="range" id="sunSlider" min="0.0" max="1.0" step="0.01" value="0.0">
-        </div>
-        <div class="control-group" style="margin-bottom: 0;">
-            <label for="cloudSlider"><span>Densidad</span> <span id="cloudValue">1.0</span></label>
-            <input type="range" id="cloudSlider" min="0.0" max="2.0" step="0.1" value="1.0">
-        </div>
-    </div>
-    <script>
-        // JS Logic para UI interactiva y comunicación con Wasm
-        let engine = null;
-        let lastTime = 0;
-        let isPointerLocked = false;
-        
-        window.addEventListener("TrunkApplicationStarted", async (e) => {
-            console.log("Trunk WebAssembly loaded!");
-            const { WebGpuEngine, set_wind_intensity_rs, set_sun_position_rs, set_cloud_density_rs } = window.wasmBindings;
-            
-            // Re-bind UI functions now that Wasm is loaded
-            window.set_wind_intensity_rs = set_wind_intensity_rs;
-            window.set_sun_position_rs = set_sun_position_rs;
-            window.set_cloud_density_rs = set_cloud_density_rs;
-            
-            engine = await WebGpuEngine.new("wasm-example-canvas");
-            
-            // Set up resize handler
-            const canvas = document.getElementById("wasm-example-canvas");
-            window.addEventListener("resize", () => {
-                engine.resize(canvas.clientWidth, canvas.clientHeight);
-            });
-            
-            // Set up keyboard handler
-            window.addEventListener("keydown", (e) => {
-                engine.set_key_state(e.key, true);
-            });
-            window.addEventListener("keyup", (e) => {
-                engine.set_key_state(e.key, false);
-            });
-            
-            // Set up mouse look
-            canvas.addEventListener("click", () => {
-                canvas.requestPointerLock();
-            });
-            
-            document.addEventListener("pointerlockchange", () => {
-                isPointerLocked = document.pointerLockElement === canvas;
-            });
-            
-            document.addEventListener("mousemove", (e) => {
-                if (isPointerLocked) {
-                    engine.handle_mouse_move(e.movementX, e.movementY);
-                }
-            });
-
-            // Start the render loop
-            requestAnimationFrame(renderLoop);
-        });
-        
-        function renderLoop(time) {
-            if (!lastTime) lastTime = time;
-            const dt = (time - lastTime) / 1000.0;
-            lastTime = time;
-            
-            if (engine) {
-                engine.render_frame(dt);
-            }
-            requestAnimationFrame(renderLoop);
-        }
-        
-        document.getElementById('windSlider').addEventListener('input', (e) => {
-            const val = parseFloat(e.target.value);
-            document.getElementById('windValue').innerText = val.toFixed(1);
-            if (window.set_wind_intensity_rs) window.set_wind_intensity_rs(val);
-        });
-
-        document.getElementById('sunSlider').addEventListener('input', (e) => {
-            const val = parseFloat(e.target.value);
-            document.getElementById('sunValue').innerText = val.toFixed(2);
-            if (window.set_sun_position_rs) window.set_sun_position_rs(val);
-        });
-
-        document.getElementById('cloudSlider').addEventListener('input', (e) => {
-            const val = parseFloat(e.target.value);
-            document.getElementById('cloudValue').innerText = val.toFixed(1);
-            if (window.set_cloud_density_rs) window.set_cloud_density_rs(val);
-        });
-    </script>
+    <!-- Winit will automatically inject its canvas here if we don't supply one, but it's fine -->
 </body>
 </html>

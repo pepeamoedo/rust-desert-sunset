@@ -1,7 +1,13 @@
-use wasm_bindgen::prelude::*;
 use std::sync::{Arc, atomic::{AtomicU32, Ordering}};
 use wgpu::util::DeviceExt;
-use web_sys::HtmlCanvasElement;
+use winit::{
+    event::*,
+    event_loop::{EventLoop, ControlFlow},
+    window::WindowBuilder,
+    keyboard::{KeyCode, PhysicalKey},
+};
+use egui_wgpu::Renderer as EguiRenderer;
+use egui_winit::State as EguiState;
 
 mod wind_audio;
 use wind_audio::WindAudioController;
@@ -27,21 +33,6 @@ impl EnvironmentState {
     pub fn get_wind_speed(&self) -> f32 { f32::from_bits(self.wind_speed.load(Ordering::Relaxed)) }
     pub fn get_cloud_density(&self) -> f32 { f32::from_bits(self.cloud_density.load(Ordering::Relaxed)) }
     pub fn get_sun_position(&self) -> f32 { f32::from_bits(self.sun_position.load(Ordering::Relaxed)) }
-}
-
-#[wasm_bindgen]
-pub fn set_wind_intensity_rs(intensity: f32) {
-    GLOBAL_ENV_STATE.with(|state| state.wind_speed.store(intensity.to_bits(), Ordering::Relaxed));
-}
-
-#[wasm_bindgen]
-pub fn set_cloud_density_rs(density: f32) {
-    GLOBAL_ENV_STATE.with(|state| state.cloud_density.store(density.to_bits(), Ordering::Relaxed));
-}
-
-#[wasm_bindgen]
-pub fn set_sun_position_rs(position: f32) {
-    GLOBAL_ENV_STATE.with(|state| state.sun_position.store(position.to_bits(), Ordering::Relaxed));
 }
 
 #[repr(C)]
@@ -100,14 +91,14 @@ struct PostProcessUniforms {
     _pad2: [f32; 2],
 }
 
-#[wasm_bindgen]
-pub struct WebGpuEngine {
-    surface: wgpu::Surface<'static>,
+pub struct State<'a> {
+    surface: wgpu::Surface<'a>,
     device: wgpu::Device,
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
-    width: u32,
-    height: u32,
+    size: winit::dpi::PhysicalSize<u32>,
+    window: Arc<winit::window::Window>,
+    
     render_pipeline: wgpu::RenderPipeline,
     render_bind_group: wgpu::BindGroup,
     post_process_pipeline: wgpu::RenderPipeline,
@@ -135,34 +126,30 @@ pub struct WebGpuEngine {
     s_pressed: bool,
     a_pressed: bool,
     d_pressed: bool,
+    q_pressed: bool,
+    e_pressed: bool,
+    
+    mouse_pressed: bool,
     
     last_cloud_density: f32,
     last_sun_position: f32,
-    q_pressed: bool,
-    e_pressed: bool,
+    
+    // Egui
+    egui_state: EguiState,
+    egui_renderer: EguiRenderer,
+    egui_context: egui::Context,
 }
 
-#[wasm_bindgen]
-impl WebGpuEngine {
-    #[wasm_bindgen(constructor)]
-    pub async fn new(canvas_id: &str) -> Self {
-        console_error_panic_hook::set_once();
-        console_log::init_with_level(log::Level::Warn).expect("Couldn't initialize logger");
-
-        let window = web_sys::window().unwrap();
-        let document = window.document().unwrap();
-        let canvas = document.get_element_by_id(canvas_id).unwrap()
-            .dyn_into::<HtmlCanvasElement>().unwrap();
-        
-        let width = canvas.client_width() as u32;
-        let height = canvas.client_height() as u32;
+impl<'a> State<'a> {
+    pub async fn new(window: Arc<winit::window::Window>) -> Self {
+        let size = window.inner_size();
 
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
             ..Default::default()
         });
         
-        let surface = instance.create_surface(wgpu::SurfaceTarget::Canvas(canvas)).unwrap();
+        let surface = instance.create_surface(window.clone()).unwrap();
         
         let adapter = instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
@@ -188,8 +175,8 @@ impl WebGpuEngine {
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
-            width,
-            height,
+            width: size.width.max(1),
+            height: size.height.max(1),
             present_mode: surface_caps.present_modes[0],
             alpha_mode: surface_caps.alpha_modes[0],
             view_formats: vec![],
@@ -300,23 +287,10 @@ impl WebGpuEngine {
 
         let render_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0, visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture { multisampled: false, view_dimension: wgpu::TextureViewDimension::D3, sample_type: wgpu::TextureSampleType::Float { filterable: true } },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1, visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering), count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2, visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: None }, count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 3, visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: None }, count: None,
-                },
+                wgpu::BindGroupLayoutEntry { binding: 0, visibility: wgpu::ShaderStages::FRAGMENT, ty: wgpu::BindingType::Texture { multisampled: false, view_dimension: wgpu::TextureViewDimension::D3, sample_type: wgpu::TextureSampleType::Float { filterable: true } }, count: None },
+                wgpu::BindGroupLayoutEntry { binding: 1, visibility: wgpu::ShaderStages::FRAGMENT, ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering), count: None },
+                wgpu::BindGroupLayoutEntry { binding: 2, visibility: wgpu::ShaderStages::FRAGMENT, ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: None }, count: None },
+                wgpu::BindGroupLayoutEntry { binding: 3, visibility: wgpu::ShaderStages::FRAGMENT, ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: None }, count: None },
             ],
             label: Some("render_bind_group_layout"),
         });
@@ -333,11 +307,7 @@ impl WebGpuEngine {
             vertex: wgpu::VertexState { module: &render_shader, entry_point: "vs_main", buffers: &[] },
             fragment: Some(wgpu::FragmentState {
                 module: &render_shader, entry_point: "fs_main",
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: config.format,
-                    blend: Some(wgpu::BlendState::REPLACE),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
+                targets: &[Some(wgpu::ColorTargetState { format: config.format, blend: Some(wgpu::BlendState::REPLACE), write_mask: wgpu::ColorWrites::ALL })],
             }),
             primitive: wgpu::PrimitiveState { topology: wgpu::PrimitiveTopology::TriangleList, ..Default::default() },
             depth_stencil: None,
@@ -358,11 +328,8 @@ impl WebGpuEngine {
 
         let render_target_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Render Target Texture"),
-            size: wgpu::Extent3d { width: config.width / 2, height: config.height / 2, depth_or_array_layers: 1 },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: config.format,
+            size: wgpu::Extent3d { width: config.width.max(2) / 2, height: config.height.max(2) / 2, depth_or_array_layers: 1 },
+            mip_level_count: 1, sample_count: 1, dimension: wgpu::TextureDimension::D2, format: config.format,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
@@ -370,11 +337,8 @@ impl WebGpuEngine {
 
         let history_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("History Texture"),
-            size: wgpu::Extent3d { width: config.width, height: config.height, depth_or_array_layers: 1 },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: config.format,
+            size: wgpu::Extent3d { width: config.width.max(1), height: config.height.max(1), depth_or_array_layers: 1 },
+            mip_level_count: 1, sample_count: 1, dimension: wgpu::TextureDimension::D2, format: config.format,
             usage: wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
@@ -449,13 +413,25 @@ impl WebGpuEngine {
 
         let audio_stream = Some(WindAudioController::new(GLOBAL_ENV_STATE.with(|s| s.clone())));
 
-        let engine = Self {
+        // Egui initialization
+        let egui_context = egui::Context::default();
+        let viewport_id = egui_context.viewport_id();
+        let egui_state = egui_winit::State::new(
+            egui_context.clone(),
+            viewport_id,
+            &window,
+            Some(window.scale_factor() as f32),
+            None,
+        );
+        let egui_renderer = egui_wgpu::Renderer::new(&device, config.format, None, 1);
+
+        let mut state = Self {
             surface,
             device,
             queue,
             config,
-            width,
-            height,
+            size,
+            window,
             render_pipeline,
             render_bind_group,
             post_process_pipeline,
@@ -483,15 +459,18 @@ impl WebGpuEngine {
             d_pressed: false,
             q_pressed: false,
             e_pressed: false,
+            mouse_pressed: false,
             
-            last_cloud_density: -1.0, // Force first update
+            last_cloud_density: -1.0,
             last_sun_position: -1.0,
+            
+            egui_state,
+            egui_renderer,
+            egui_context,
         };
         
-        // Initial compute pass
-        engine.run_compute_pass();
-        
-        engine
+        state.run_compute_pass();
+        state
     }
 
     pub fn run_compute_pass(&self) {
@@ -508,17 +487,16 @@ impl WebGpuEngine {
         self.queue.submit(std::iter::once(encoder.finish()));
     }
 
-    pub fn resize(&mut self, new_width: u32, new_height: u32) {
-        if new_width > 0 && new_height > 0 {
-            self.width = new_width;
-            self.height = new_height;
-            self.config.width = new_width;
-            self.config.height = new_height;
+    pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
+        if new_size.width > 0 && new_size.height > 0 {
+            self.size = new_size;
+            self.config.width = new_size.width;
+            self.config.height = new_size.height;
             self.surface.configure(&self.device, &self.config);
             
             self.render_target_texture = self.device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("Render Target Texture"),
-                size: wgpu::Extent3d { width: self.width / 2, height: self.height / 2, depth_or_array_layers: 1 },
+                size: wgpu::Extent3d { width: self.config.width.max(2) / 2, height: self.config.height.max(2) / 2, depth_or_array_layers: 1 },
                 mip_level_count: 1, sample_count: 1, dimension: wgpu::TextureDimension::D2, format: self.config.format,
                 usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
                 view_formats: &[],
@@ -527,7 +505,7 @@ impl WebGpuEngine {
 
             self.history_texture = self.device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("History Texture"),
-                size: wgpu::Extent3d { width: self.width, height: self.height, depth_or_array_layers: 1 },
+                size: wgpu::Extent3d { width: self.config.width, height: self.config.height, depth_or_array_layers: 1 },
                 mip_level_count: 1, sample_count: 1, dimension: wgpu::TextureDimension::D2, format: self.config.format,
                 usage: wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::TEXTURE_BINDING,
                 view_formats: &[],
@@ -537,7 +515,7 @@ impl WebGpuEngine {
             let post_process_uniforms = PostProcessUniforms {
                 time: self.camera_uniform.time[0],
                 _pad1: 0.0,
-                resolution: [self.width as f32, self.height as f32],
+                resolution: [self.size.width as f32, self.size.height as f32],
                 _pad2: [0.0; 2],
             };
             self.queue.write_buffer(&self.post_process_uniform_buffer, 0, bytemuck::cast_slice(&[post_process_uniforms]));
@@ -555,25 +533,15 @@ impl WebGpuEngine {
         }
     }
 
-    pub fn set_key_state(&mut self, key: &str, is_pressed: bool) {
-        match key {
-            "w" | "W" => self.w_pressed = is_pressed,
-            "a" | "A" => self.a_pressed = is_pressed,
-            "s" | "S" => self.s_pressed = is_pressed,
-            "d" | "D" => self.d_pressed = is_pressed,
-            "q" | "Q" => self.q_pressed = is_pressed,
-            "e" | "E" => self.e_pressed = is_pressed,
-            _ => {}
+    pub fn handle_mouse_move(&mut self, dx: f64, dy: f64) {
+        if self.mouse_pressed {
+            self.yaw -= dx as f32 * 0.005;
+            self.pitch += dy as f32 * 0.005;
         }
     }
 
-    pub fn handle_mouse_move(&mut self, dx: f32, dy: f32) {
-        self.yaw -= dx * 0.005;
-        self.pitch += dy * 0.005;
-    }
-
-    pub fn render_frame(&mut self, dt: f32) {
-        let speed = 0.08 * (dt * 60.0); // normalize speed to 60fps dt
+    pub fn render(&mut self, dt: f32) -> Result<(), wgpu::SurfaceError> {
+        let speed = 0.08 * (dt * 60.0).max(0.1); 
         let forward = glam::Vec3::new(
             self.yaw.cos() * self.pitch.cos(),
             self.pitch.sin(),
@@ -591,9 +559,39 @@ impl WebGpuEngine {
 
         self.pos.y = self.pos.y.clamp(-0.5, 8.5);
         
-        let current_wind_speed = GLOBAL_ENV_STATE.with(|s| s.get_wind_speed());
-        let current_cloud_density = GLOBAL_ENV_STATE.with(|s| s.get_cloud_density());
-        let current_sun_position = GLOBAL_ENV_STATE.with(|s| s.get_sun_position());
+        let mut current_wind_speed = GLOBAL_ENV_STATE.with(|s| s.get_wind_speed());
+        let mut current_cloud_density = GLOBAL_ENV_STATE.with(|s| s.get_cloud_density());
+        let mut current_sun_position = GLOBAL_ENV_STATE.with(|s| s.get_sun_position());
+        
+        // --- EGUI UI ---
+        let raw_input = self.egui_state.take_egui_input(&self.window);
+        let egui_output = self.egui_context.run(raw_input, |ctx| {
+            egui::Window::new("Controles").show(ctx, |ui| {
+                ui.label("Viento");
+                if ui.add(egui::Slider::new(&mut current_wind_speed, 0.0..=5.0)).changed() {
+                    GLOBAL_ENV_STATE.with(|s| s.wind_speed.store(current_wind_speed.to_bits(), Ordering::Relaxed));
+                }
+                
+                ui.label("Sol (Hora)");
+                if ui.add(egui::Slider::new(&mut current_sun_position, 0.0..=1.0)).changed() {
+                    GLOBAL_ENV_STATE.with(|s| s.sun_position.store(current_sun_position.to_bits(), Ordering::Relaxed));
+                }
+                
+                ui.label("Densidad Nubes");
+                if ui.add(egui::Slider::new(&mut current_cloud_density, 0.0..=2.0)).changed() {
+                    GLOBAL_ENV_STATE.with(|s| s.cloud_density.store(current_cloud_density.to_bits(), Ordering::Relaxed));
+                }
+            });
+        });
+        
+        self.egui_state.handle_platform_output(&self.window, egui_output.platform_output);
+        let paint_jobs = self.egui_context.tessellate(egui_output.shapes, self.egui_context.pixels_per_point());
+        let screen_descriptor = egui_wgpu::ScreenDescriptor {
+            size_in_pixels: [self.config.width, self.config.height],
+            pixels_per_point: self.window.scale_factor() as f32,
+        };
+        // ---------------
+
         self.camera_uniform.time[0] += dt * current_wind_speed;
 
         let env_uniform = EnvironmentUniform {
@@ -621,23 +619,18 @@ impl WebGpuEngine {
         let post_process_uniforms = PostProcessUniforms {
             time: self.camera_uniform.time[0],
             _pad1: 0.0,
-            resolution: [self.width as f32, self.height as f32],
+            resolution: [self.size.width as f32, self.size.height as f32],
             _pad2: [0.0; 2],
         };
         self.queue.write_buffer(&self.post_process_uniform_buffer, 0, bytemuck::cast_slice(&[post_process_uniforms]));
 
-        let output = match self.surface.get_current_texture() {
-            Ok(texture) => texture,
-            Err(e) => {
-                eprintln!("{:?}", e);
-                return;
-            }
-        };
-        
+        let output = self.surface.get_current_texture()?;
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
         let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("Render Encoder") });
-
-        // Compute pass has been moved to run_compute_pass and is only triggered when needed
+        
+        for (id, image_delta) in &egui_output.textures_delta.set {
+            self.egui_renderer.update_texture(&self.device, &self.queue, *id, image_delta);
+        }
 
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -656,6 +649,14 @@ impl WebGpuEngine {
             render_pass.draw(0..3, 0..1);
         }
 
+        self.egui_renderer.update_buffers(
+            &self.device,
+            &self.queue,
+            &mut encoder,
+            &paint_jobs,
+            &screen_descriptor,
+        );
+
         {
             let mut post_process_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Post Process Pass"),
@@ -671,15 +672,105 @@ impl WebGpuEngine {
             post_process_pass.set_pipeline(&self.post_process_pipeline);
             post_process_pass.set_bind_group(0, &self.post_process_bind_group, &[]);
             post_process_pass.draw(0..3, 0..1);
+            
+            self.egui_renderer.render(&mut post_process_pass, &paint_jobs, &screen_descriptor);
         }
 
         encoder.copy_texture_to_texture(
             wgpu::ImageCopyTexture { texture: &output.texture, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
             wgpu::ImageCopyTexture { texture: &self.history_texture, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
-            wgpu::Extent3d { width: self.width, height: self.height, depth_or_array_layers: 1 }
+            wgpu::Extent3d { width: self.size.width, height: self.size.height, depth_or_array_layers: 1 }
         );
 
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
+        
+        for id in &egui_output.textures_delta.free {
+            self.egui_renderer.free_texture(id);
+        }
+        
+        Ok(())
     }
+}
+
+pub fn run() {
+    #[cfg(target_arch = "wasm32")]
+    {
+        std::panic::set_hook(Box::new(console_error_panic_hook::hook));
+        console_log::init_with_level(log::Level::Warn).expect("Couldn't initialize logger");
+    }
+
+    let event_loop = EventLoop::new().unwrap();
+    let window = Arc::new(WindowBuilder::new().with_title("Nubes").build(&event_loop).unwrap());
+    
+    #[cfg(target_arch = "wasm32")]
+    {
+        use winit::platform::web::WindowExtWebSys;
+        let canvas = window.canvas().unwrap();
+        let web_window = web_sys::window().unwrap();
+        let document = web_window.document().unwrap();
+        let body = document.body().unwrap();
+        body.append_child(&canvas).expect("Append canvas to HTML body");
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_futures::spawn_local(async move {
+        let mut state = State::new(window.clone()).await;
+        let mut last_time = web_time::Instant::now();
+        
+        event_loop.run(move |event, elwt| {
+            match event {
+                Event::WindowEvent { ref event, window_id } if window_id == window.id() => {
+                    let egui_consumed = state.egui_state.on_window_event(&window, event).consumed;
+                    
+                    if !egui_consumed {
+                        match event {
+                            WindowEvent::CloseRequested => elwt.exit(),
+                            WindowEvent::Resized(physical_size) => state.resize(*physical_size),
+                            WindowEvent::KeyboardInput {
+                                event: winit::event::KeyEvent { physical_key: PhysicalKey::Code(keycode), state: element_state, .. },
+                                ..
+                            } => {
+                                let is_pressed = *element_state == ElementState::Pressed;
+                                match keycode {
+                                    KeyCode::KeyW => state.w_pressed = is_pressed,
+                                    KeyCode::KeyA => state.a_pressed = is_pressed,
+                                    KeyCode::KeyS => state.s_pressed = is_pressed,
+                                    KeyCode::KeyD => state.d_pressed = is_pressed,
+                                    KeyCode::KeyQ => state.q_pressed = is_pressed,
+                                    KeyCode::KeyE => state.e_pressed = is_pressed,
+                                    _ => {}
+                                }
+                            }
+                            WindowEvent::MouseInput { state: element_state, button: MouseButton::Left, .. } => {
+                                state.mouse_pressed = *element_state == ElementState::Pressed;
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                Event::DeviceEvent { event: DeviceEvent::MouseMotion { delta }, .. } => {
+                    if state.mouse_pressed {
+                        state.handle_mouse_move(delta.0, delta.1);
+                    }
+                }
+                Event::AboutToWait => {
+                    window.request_redraw();
+                }
+                Event::WindowEvent { event: WindowEvent::RedrawRequested, .. } => {
+                    let now = web_time::Instant::now();
+                    let dt = now.duration_since(last_time).as_secs_f32();
+                    last_time = now;
+                    
+                    match state.render(dt) {
+                        Ok(_) => {}
+                        Err(wgpu::SurfaceError::Lost) => state.resize(state.size),
+                        Err(wgpu::SurfaceError::OutOfMemory) => elwt.exit(),
+                        Err(e) => eprintln!("{:?}", e),
+                    }
+                }
+                _ => {}
+            }
+        }).unwrap();
+    });
 }
