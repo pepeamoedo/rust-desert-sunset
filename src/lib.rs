@@ -482,7 +482,7 @@ impl<'a> State<'a> {
             });
             compute_pass.set_pipeline(&self.compute_pipeline);
             compute_pass.set_bind_group(0, &self.compute_bind_group, &[]);
-            compute_pass.dispatch_workgroups(64 / 8, 64 / 8, 64 / 8);
+            compute_pass.dispatch_workgroups(64 / 4, 64 / 4, 64 / 4);
         }
         self.queue.submit(std::iter::once(encoder.finish()));
     }
