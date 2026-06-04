@@ -6,14 +6,17 @@ use std::sync::Arc;
 use crate::EnvironmentState;
 
 #[cfg(not(target_arch = "wasm32"))]
-struct FastRng { state: u32 }
+struct FastRng { state: u64 }
 
 #[cfg(not(target_arch = "wasm32"))]
 impl FastRng {
-    fn new() -> Self { Self { state: 42 } }
+    fn new() -> Self { Self { state: 0x2545F4914F6CDD1D } }
     fn next_f32(&mut self) -> f32 {
-        self.state = self.state.wrapping_mul(1664525).wrapping_add(1013904223);
-        (self.state as f32) / (u32::MAX as f32) * 2.0 - 1.0
+        self.state ^= self.state << 13;
+        self.state ^= self.state >> 7;
+        self.state ^= self.state << 17;
+        let rand_val = (self.state >> 40) as u32;
+        (rand_val as f32) / 16777216.0 * 2.0 - 1.0
     }
 }
 
@@ -98,18 +101,21 @@ where
             let lfo_rate = 0.2 + (0.8 * wind_speed);
             
             for frame in data.chunks_mut(channels) {
-                let noise = rng.next_f32();
+                let noise_bp = rng.next_f32();
+                let noise_lp = rng.next_f32(); // Independent noise prevents phase cancellation
                 
                 let lfo_val = lfo.process(lfo_rate, sample_rate);
-                let modulated_freq = (freq + lfo_val * 400.0).clamp(20.0, sample_rate / 2.0 - 1.0);
+                let modulated_freq = (freq + lfo_val * 400.0).clamp(0.1, sample_rate / 2.0 - 1.0);
                 
                 // Process Bandpass (modulating)
-                let (bp_out, _) = filter_bp.process(noise, modulated_freq, 5.0, sample_rate);
+                let (bp_out, _) = filter_bp.process(noise_bp, modulated_freq, 5.0, sample_rate);
                 
                 // Process Lowpass (static)
-                let (_, lp_out) = filter_lp.process(noise, 90.0, 1.0, sample_rate);
+                let (_, lp_out) = filter_lp.process(noise_lp, 90.0, 1.0, sample_rate);
                 
-                let out = (bp_out + lp_out) * volume;
+                let mut out = (bp_out + lp_out) * volume;
+                out = out / (1.0 + out.abs() * 0.5); // Soft clipper
+                
                 let sample: T = T::from_sample(out);
                 
                 for output in frame.iter_mut() {
