@@ -13,6 +13,8 @@ pub struct WindAudioController {
     #[cfg(target_arch = "wasm32")]
     filter: BiquadFilterNode,
     #[cfg(target_arch = "wasm32")]
+    lowpass_filter: BiquadFilterNode,
+    #[cfg(target_arch = "wasm32")]
     lfo: OscillatorNode,
     env_state: Arc<EnvironmentState>,
     time: f32,
@@ -64,7 +66,17 @@ impl WindAudioController {
             let gain = ctx.create_gain().unwrap();
             gain.gain().set_value(0.5);
             
-            // Connect audio graph: Source -> Filter -> Gain -> Destination
+            // Create static lowpass filter for deep rumble
+            let lowpass_filter = ctx.create_biquad_filter().unwrap();
+            lowpass_filter.set_type(web_sys::BiquadFilterType::Lowpass);
+            lowpass_filter.frequency().set_value(90.0); // 80-100Hz
+            lowpass_filter.q().set_value(1.0);
+            
+            // Connect source -> lowpass -> gain
+            source.connect_with_audio_node(&lowpass_filter).unwrap();
+            lowpass_filter.connect_with_audio_node(&gain).unwrap();
+            
+            // Connect Audio Graph for howling wind: Source -> Filter -> Gain -> Destination
             source.connect_with_audio_node(&filter).unwrap();
             filter.connect_with_audio_node(&gain).unwrap();
             gain.connect_with_audio_node(&ctx.destination()).unwrap();
@@ -77,6 +89,7 @@ impl WindAudioController {
                 ctx,
                 gain,
                 filter,
+                lowpass_filter,
                 lfo,
                 env_state,
                 time: 0.0,
@@ -96,17 +109,17 @@ impl WindAudioController {
         let wind_speed = self.env_state.get_wind_speed();
         self.time += 0.016 * wind_speed; // approximate 60fps delta
         
-        // Base frequency moves up with wind speed
-        let freq = 100.0 + (300.0 * wind_speed);
-        
-        // Volume depends on wind speed
-        let volume = 0.5 * wind_speed;
-        
-        // LFO rate depends on wind speed (faster wind = faster gusts)
-        let lfo_rate = 0.2 + (0.8 * wind_speed);
-        
         #[cfg(target_arch = "wasm32")]
         {
+            // Base frequency moves up with wind speed
+            let freq = 100.0 + (300.0 * wind_speed);
+            
+            // Volume depends on wind speed
+            let volume = 0.5 * wind_speed;
+            
+            // LFO rate depends on wind speed (faster wind = faster gusts)
+            let lfo_rate = 0.2 + (0.8 * wind_speed);
+            
             // Base filter frequency
             self.filter.frequency().set_value(freq);
             
