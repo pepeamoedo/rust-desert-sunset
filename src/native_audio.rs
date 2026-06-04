@@ -7,7 +7,6 @@ use crate::EnvironmentState;
 
 #[cfg(not(target_arch = "wasm32"))]
 struct FastRng { state: u64 }
-
 #[cfg(not(target_arch = "wasm32"))]
 impl FastRng {
     fn new() -> Self { Self { state: 0x2545F4914F6CDD1D } }
@@ -21,38 +20,58 @@ impl FastRng {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-struct Svf {
-    lp: f32,
-    bp: f32,
+struct Biquad {
+    b0: f32, b1: f32, b2: f32,
+    a1: f32, a2: f32,
+    x1: f32, x2: f32,
+    y1: f32, y2: f32,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-impl Svf {
-    fn new() -> Self { Self { lp: 0.0, bp: 0.0 } }
+impl Biquad {
+    fn new() -> Self {
+        Self { b0: 1.0, b1: 0.0, b2: 0.0, a1: 0.0, a2: 0.0, x1: 0.0, x2: 0.0, y1: 0.0, y2: 0.0 }
+    }
     
-    // Process 2x oversampled Chamberlin SVF for stability
-    fn process(&mut self, input: f32, f0: f32, q: f32, fs: f32) -> (f32, f32) {
-        let f = 2.0 * (std::f32::consts::PI * f0 / (fs * 2.0)).sin();
-        let damp = 1.0 / q;
+    fn set_bandpass(&mut self, f0: f32, q: f32, fs: f32) {
+        let w0 = 2.0 * std::f32::consts::PI * f0 / fs;
+        let alpha = w0.sin() / (2.0 * q);
+        let a0 = 1.0 + alpha;
+        self.b0 = alpha / a0;
+        self.b1 = 0.0;
+        self.b2 = -alpha / a0;
+        self.a1 = (-2.0 * w0.cos()) / a0;
+        self.a2 = (1.0 - alpha) / a0;
+    }
+    
+    fn set_lowpass(&mut self, f0: f32, q_db: f32, fs: f32) {
+        let w0 = 2.0 * std::f32::consts::PI * f0 / fs;
+        let q_linear = 10.0f32.powf(q_db / 20.0);
+        let alpha = w0.sin() / (2.0 * q_linear);
+        let a0 = 1.0 + alpha;
+        self.b0 = ((1.0 - w0.cos()) / 2.0) / a0;
+        self.b1 = (1.0 - w0.cos()) / a0;
+        self.b2 = ((1.0 - w0.cos()) / 2.0) / a0;
+        self.a1 = (-2.0 * w0.cos()) / a0;
+        self.a2 = (1.0 - alpha) / a0;
+    }
+    
+    fn process(&mut self, x: f32) -> f32 {
+        let y = self.b0 * x + self.b1 * self.x1 + self.b2 * self.x2
+              - self.a1 * self.y1 - self.a2 * self.y2;
+        self.x2 = self.x1; self.x1 = x;
+        self.y2 = self.y1; self.y1 = y;
         
-        // Iteration 1
-        let mut hp = input - self.lp - damp * self.bp;
-        self.bp += f * hp;
-        self.lp += f * self.bp;
-        
-        // Iteration 2
-        hp = input - self.lp - damp * self.bp;
-        self.bp += f * hp;
-        self.lp += f * self.bp;
-        
-        // Return 0dB peak normalized bandpass, and lowpass
-        (self.bp * damp, self.lp)
+        // Prevent denormals/NaNs
+        if y.is_nan() || y.is_infinite() || y.abs() < 1e-10 {
+            return 0.0;
+        }
+        y
     }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 struct Lfo { phase: f32 }
-
 #[cfg(not(target_arch = "wasm32"))]
 impl Lfo {
     fn new() -> Self { Self { phase: 0.0 } }
@@ -85,10 +104,21 @@ where
     let sample_rate = config.sample_rate.0 as f32;
     let channels = config.channels as usize;
     
-    let mut filter_bp = Svf::new();
-    let mut filter_lp = Svf::new();
+    let mut filter_bp = Biquad::new();
+    let mut filter_lp = Biquad::new();
     let mut lfo = Lfo::new();
+    
+    // Allocate 2 seconds of noise buffer, EXACTLY like Web Audio API!
+    let buffer_size = (sample_rate * 2.0) as usize;
+    let mut noise_buffer = vec![0.0f32; buffer_size];
     let mut rng = FastRng::new();
+    for i in 0..buffer_size {
+        noise_buffer[i] = rng.next_f32();
+    }
+    let mut noise_idx = 0;
+    
+    // Lowpass is static
+    filter_lp.set_lowpass(90.0, 1.0, sample_rate);
     
     let err_fn = |err| eprintln!("an error occurred on stream: {}", err);
     
@@ -101,23 +131,29 @@ where
             let lfo_rate = 0.2 + (0.8 * wind_speed);
             
             for frame in data.chunks_mut(channels) {
-                let noise_bp = rng.next_f32();
-                let noise_lp = rng.next_f32(); // Independent noise prevents phase cancellation
+                // Exact Web Audio noise looping behavior
+                let noise = noise_buffer[noise_idx];
+                noise_idx = (noise_idx + 1) % buffer_size;
                 
                 let lfo_val = lfo.process(lfo_rate, sample_rate);
-                let modulated_freq = (freq + lfo_val * 400.0).clamp(0.1, sample_rate / 2.0 - 1.0);
                 
-                // Process Bandpass (modulating)
-                let (bp_out, _) = filter_bp.process(noise_bp, modulated_freq, 5.0, sample_rate);
+                // Web Audio clamps frequency to nominal range [10, Nyquist] for Biquads
+                let modulated_freq = (freq + lfo_val * 400.0).clamp(10.0, sample_rate / 2.0 - 1.0);
                 
-                // Process Lowpass (static)
-                let (_, lp_out) = filter_lp.process(noise_lp, 90.0, 1.0, sample_rate);
+                // Update bandpass coefficients
+                filter_bp.set_bandpass(modulated_freq, 5.0, sample_rate);
                 
+                // WebAudio routes the exact same noise node to both filters!
+                let bp_out = filter_bp.process(noise);
+                let lp_out = filter_lp.process(noise);
+                
+                // Mix exactly like WebAudio Gain node
                 let mut out = (bp_out + lp_out) * volume;
-                out = out / (1.0 + out.abs() * 0.5); // Soft clipper
+                
+                // WebAudio has soft clipping at the destination
+                out = out.tanh();
                 
                 let sample: T = T::from_sample(out);
-                
                 for output in frame.iter_mut() {
                     *output = sample;
                 }
