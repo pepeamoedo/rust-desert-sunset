@@ -173,7 +173,7 @@ impl<'a> State<'a> {
             .unwrap_or(surface_caps.formats[0]);
             
         let config = wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
             format: surface_format,
             width: size.width.max(1),
             height: size.height.max(1),
@@ -735,6 +735,18 @@ async fn run_async(event_loop: EventLoop<()>, window: Arc<winit::window::Window>
                     match event {
                         WindowEvent::CloseRequested => elwt.exit(),
                         WindowEvent::Resized(physical_size) => state.resize(*physical_size),
+                        WindowEvent::RedrawRequested => {
+                            let now = web_time::Instant::now();
+                            let dt = now.duration_since(last_time).as_secs_f32();
+                            last_time = now;
+                            
+                            match state.render(dt) {
+                                Ok(_) => {}
+                                Err(wgpu::SurfaceError::Lost) => state.resize(state.size),
+                                Err(wgpu::SurfaceError::OutOfMemory) => elwt.exit(),
+                                Err(e) => eprintln!("{:?}", e),
+                            }
+                        }
                         WindowEvent::KeyboardInput {
                             event: winit::event::KeyEvent { physical_key: PhysicalKey::Code(keycode), state: element_state, .. },
                             ..
@@ -764,18 +776,6 @@ async fn run_async(event_loop: EventLoop<()>, window: Arc<winit::window::Window>
             }
             Event::AboutToWait => {
                 window.request_redraw();
-            }
-            Event::WindowEvent { event: WindowEvent::RedrawRequested, .. } => {
-                let now = web_time::Instant::now();
-                let dt = now.duration_since(last_time).as_secs_f32();
-                last_time = now;
-                
-                match state.render(dt) {
-                    Ok(_) => {}
-                    Err(wgpu::SurfaceError::Lost) => state.resize(state.size),
-                    Err(wgpu::SurfaceError::OutOfMemory) => elwt.exit(),
-                    Err(e) => eprintln!("{:?}", e),
-                }
             }
             _ => {}
         }
