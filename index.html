@@ -7,8 +7,8 @@
     <!-- Trunk will automatically compile and inject the Rust WebAssembly here -->
     
 <script type="module">
-import init, * as bindings from '/rust-desert-sunset/rust-desert-sunset-3609c332275e2e86.js';
-const wasm = await init({ module_or_path: '/rust-desert-sunset/rust-desert-sunset-3609c332275e2e86_bg.wasm' });
+import init, * as bindings from '/rust-desert-sunset/rust-desert-sunset-869d888813d8bc73.js';
+const wasm = await init({ module_or_path: '/rust-desert-sunset/rust-desert-sunset-869d888813d8bc73_bg.wasm' });
 
 
 window.wasmBindings = bindings;
@@ -32,7 +32,7 @@ dispatchEvent(new CustomEvent("TrunkApplicationStarted", {detail: {wasm}}));
             height: 100%;
         }
     </style>
-<link rel="modulepreload" href="/rust-desert-sunset/rust-desert-sunset-3609c332275e2e86.js" crossorigin="anonymous" integrity="sha384-kn0H+ErgDJUF9YSSs2hOFMXfwZARa+I/G+vKRRMgXTq0zzezbo903Vqc/nGdH0mZ"><link rel="preload" href="/rust-desert-sunset/rust-desert-sunset-3609c332275e2e86_bg.wasm" crossorigin="anonymous" integrity="sha384-F/EcXjfW5h0CGTb0CQWaxM9YvCQiiO050QOo1HquJLpWuib8fVqQupUT+88q5s8q" as="fetch" type="application/wasm"></head>
+<link rel="modulepreload" href="/rust-desert-sunset/rust-desert-sunset-869d888813d8bc73.js" crossorigin="anonymous" integrity="sha384-m3dU4jc+nXVccT3XMCS5o2jHkUbxzBkr+dplzroGqzcT6Z3niuVmRjBS6/GP/9C+"><link rel="preload" href="/rust-desert-sunset/rust-desert-sunset-869d888813d8bc73_bg.wasm" crossorigin="anonymous" integrity="sha384-zvAKPf/g4TffRAASGO0YHonN9YDlKrwDnz3fJ+HrqtZYVoHuhGEjgJRERrLnxsK+" as="fetch" type="application/wasm"></head>
 <body id="wasm-example">
     <!-- Winit will automatically inject its canvas here if we don't supply one, but it's fine -->
 </body>
