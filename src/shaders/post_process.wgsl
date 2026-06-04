@@ -42,7 +42,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     
     // Simple 5-tap cross blur for bloom on the CURRENT frame
     let texel_size = vec2<f32>(1.0 / uniforms.resolution.x, 1.0 / uniforms.resolution.y);
-    let offsets = array<vec2<f32>, 5>(
+    var offsets = array<vec2<f32>, 5>(
         vec2<f32>(0.0, 0.0),
         vec2<f32>(-1.5, 0.0) * texel_size,
         vec2<f32>(1.5, 0.0) * texel_size,
