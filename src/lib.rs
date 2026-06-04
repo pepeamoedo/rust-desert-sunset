@@ -1,3 +1,4 @@
+mod native_audio;
 use std::sync::{Arc, atomic::{AtomicU32, Ordering}};
 use wgpu::util::DeviceExt;
 use winit::{

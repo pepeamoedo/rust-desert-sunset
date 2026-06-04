@@ -16,6 +16,9 @@ pub struct WindAudioController {
     _lowpass_filter: BiquadFilterNode,
     #[cfg(target_arch = "wasm32")]
     lfo: OscillatorNode,
+    #[cfg(not(target_arch = "wasm32"))]
+    _stream: Option<cpal::Stream>,
+    
     env_state: Arc<EnvironmentState>,
     time: f32,
 }
@@ -98,7 +101,9 @@ impl WindAudioController {
         
         #[cfg(not(target_arch = "wasm32"))]
         {
+            let stream = crate::native_audio::spawn_audio_stream(env_state.clone());
             Self {
+                _stream: stream,
                 env_state,
                 time: 0.0,
             }
