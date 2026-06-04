@@ -726,6 +726,7 @@ async fn run_async(event_loop: EventLoop<()>, window: Arc<winit::window::Window>
     let mut last_time = web_time::Instant::now();
     
     event_loop.run(move |event, elwt| {
+        elwt.set_control_flow(winit::event_loop::ControlFlow::Poll);
         match event {
             Event::WindowEvent { ref event, window_id } if window_id == window.id() => {
                 let egui_consumed = state.egui_state.on_window_event(&window, event).consumed;
