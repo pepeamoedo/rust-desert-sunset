@@ -711,66 +711,72 @@ pub fn run() {
         let document = web_window.document().unwrap();
         let body = document.body().unwrap();
         body.append_child(&canvas).expect("Append canvas to HTML body");
+        
+        wasm_bindgen_futures::spawn_local(run_async(event_loop, window));
     }
 
-    #[cfg(target_arch = "wasm32")]
-    wasm_bindgen_futures::spawn_local(async move {
-        let mut state = State::new(window.clone()).await;
-        let mut last_time = web_time::Instant::now();
-        
-        event_loop.run(move |event, elwt| {
-            match event {
-                Event::WindowEvent { ref event, window_id } if window_id == window.id() => {
-                    let egui_consumed = state.egui_state.on_window_event(&window, event).consumed;
-                    
-                    if !egui_consumed {
-                        match event {
-                            WindowEvent::CloseRequested => elwt.exit(),
-                            WindowEvent::Resized(physical_size) => state.resize(*physical_size),
-                            WindowEvent::KeyboardInput {
-                                event: winit::event::KeyEvent { physical_key: PhysicalKey::Code(keycode), state: element_state, .. },
-                                ..
-                            } => {
-                                let is_pressed = *element_state == ElementState::Pressed;
-                                match keycode {
-                                    KeyCode::KeyW => state.w_pressed = is_pressed,
-                                    KeyCode::KeyA => state.a_pressed = is_pressed,
-                                    KeyCode::KeyS => state.s_pressed = is_pressed,
-                                    KeyCode::KeyD => state.d_pressed = is_pressed,
-                                    KeyCode::KeyQ => state.q_pressed = is_pressed,
-                                    KeyCode::KeyE => state.e_pressed = is_pressed,
-                                    _ => {}
-                                }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        pollster::block_on(run_async(event_loop, window));
+    }
+}
+
+async fn run_async(event_loop: EventLoop<()>, window: Arc<winit::window::Window>) {
+    let mut state = State::new(window.clone()).await;
+    let mut last_time = web_time::Instant::now();
+    
+    event_loop.run(move |event, elwt| {
+        match event {
+            Event::WindowEvent { ref event, window_id } if window_id == window.id() => {
+                let egui_consumed = state.egui_state.on_window_event(&window, event).consumed;
+                
+                if !egui_consumed {
+                    match event {
+                        WindowEvent::CloseRequested => elwt.exit(),
+                        WindowEvent::Resized(physical_size) => state.resize(*physical_size),
+                        WindowEvent::KeyboardInput {
+                            event: winit::event::KeyEvent { physical_key: PhysicalKey::Code(keycode), state: element_state, .. },
+                            ..
+                        } => {
+                            let is_pressed = *element_state == ElementState::Pressed;
+                            match keycode {
+                                KeyCode::KeyW => state.w_pressed = is_pressed,
+                                KeyCode::KeyA => state.a_pressed = is_pressed,
+                                KeyCode::KeyS => state.s_pressed = is_pressed,
+                                KeyCode::KeyD => state.d_pressed = is_pressed,
+                                KeyCode::KeyQ => state.q_pressed = is_pressed,
+                                KeyCode::KeyE => state.e_pressed = is_pressed,
+                                _ => {}
                             }
-                            WindowEvent::MouseInput { state: element_state, button: MouseButton::Left, .. } => {
-                                state.mouse_pressed = *element_state == ElementState::Pressed;
-                            }
-                            _ => {}
                         }
+                        WindowEvent::MouseInput { state: element_state, button: MouseButton::Left, .. } => {
+                            state.mouse_pressed = *element_state == ElementState::Pressed;
+                        }
+                        _ => {}
                     }
                 }
-                Event::DeviceEvent { event: DeviceEvent::MouseMotion { delta }, .. } => {
-                    if state.mouse_pressed {
-                        state.handle_mouse_move(delta.0, delta.1);
-                    }
-                }
-                Event::AboutToWait => {
-                    window.request_redraw();
-                }
-                Event::WindowEvent { event: WindowEvent::RedrawRequested, .. } => {
-                    let now = web_time::Instant::now();
-                    let dt = now.duration_since(last_time).as_secs_f32();
-                    last_time = now;
-                    
-                    match state.render(dt) {
-                        Ok(_) => {}
-                        Err(wgpu::SurfaceError::Lost) => state.resize(state.size),
-                        Err(wgpu::SurfaceError::OutOfMemory) => elwt.exit(),
-                        Err(e) => eprintln!("{:?}", e),
-                    }
-                }
-                _ => {}
             }
-        }).unwrap();
-    });
+            Event::DeviceEvent { event: DeviceEvent::MouseMotion { delta }, .. } => {
+                if state.mouse_pressed {
+                    state.handle_mouse_move(delta.0, delta.1);
+                }
+            }
+            Event::AboutToWait => {
+                window.request_redraw();
+            }
+            Event::WindowEvent { event: WindowEvent::RedrawRequested, .. } => {
+                let now = web_time::Instant::now();
+                let dt = now.duration_since(last_time).as_secs_f32();
+                last_time = now;
+                
+                match state.render(dt) {
+                    Ok(_) => {}
+                    Err(wgpu::SurfaceError::Lost) => state.resize(state.size),
+                    Err(wgpu::SurfaceError::OutOfMemory) => elwt.exit(),
+                    Err(e) => eprintln!("{:?}", e),
+                }
+            }
+            _ => {}
+        }
+    }).unwrap();
 }
