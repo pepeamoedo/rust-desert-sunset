@@ -13,7 +13,7 @@ pub struct WindAudioController {
     #[cfg(target_arch = "wasm32")]
     filter: BiquadFilterNode,
     #[cfg(target_arch = "wasm32")]
-    lowpass_filter: BiquadFilterNode,
+    _lowpass_filter: BiquadFilterNode,
     #[cfg(target_arch = "wasm32")]
     lfo: OscillatorNode,
     env_state: Arc<EnvironmentState>,
@@ -89,7 +89,7 @@ impl WindAudioController {
                 ctx,
                 gain,
                 filter,
-                lowpass_filter,
+                _lowpass_filter: lowpass_filter,
                 lfo,
                 env_state,
                 time: 0.0,
